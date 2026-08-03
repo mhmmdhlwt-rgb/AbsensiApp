@@ -164,6 +164,60 @@ grep "_bgPullTimer\|_POLL_STORES\|_startPolling" index.html
    - Test tab switching — harus cepat (<100ms)
 
 
-*Adopsi `DateFmt` di seluruh kode** — ganti inline `new Date(ts).toLocaleDateString("id-ID")` dengan `DateFmt.fmtDateID(ts)` di semua lokasi (grep `toLocaleDateString`).
-4. **Adopsi `VirtualList` di list panjang** — implementasi di `App.renderSnt()` dan `App.renderAbs()` jika data > 50 item.
-5. **Adopsi `FirestoreService`** — migrasi `_fbFetch`/`_fbPatch` jadi method `FirestoreService.getInstance()`. Bertahap, store per store.
+
+## Audit v3b — User Feedback Round 2 (baru diterapkan)
+
+Setelah deploy v3, user report 3 masalah baru. Semua sudah diperbaiki:
+
+### Fix 9: Scroll jump ke atas saat scroll sedikit
+**Lokasi:** `index.html:52,53,71` (CSS) + `index.html:8638` (keyboard handler)
+
+**Akar masalah:** Browser default behavior — saat user scroll di child container yang sudah sampai atas, browser akan scroll parent (body/window) ke atas juga (scroll chaining). Tidak ada `overscroll-behavior:contain` di #app.
+
+**Fix:**
+- `html, body { overscroll-behavior: none }` — cegah scroll chaining di level root
+- `#app { height: 100vh; overflow-y: auto; overscroll-behavior: contain }` — #app jadi scroll container utama, terisolasi
+- `.pg, .pb100 { overscroll-behavior: contain }` — page container juga contain
+- Keyboard handler: lock `#app` (bukan `body`) saat keyboard muncul — save/restore `scrollTop` dengan benar
+- Optimasi `_scheduleReRender`: hanya simpan scrollTop dari 4 container utama (#app, #bs, #si, #chat-messages-wrap), bukan `querySelectorAll('*')` yang lambat
+
+### Fix 10: Export data dengan 3 opsi terpisah
+**Lokasi:** `index.html:5186` (button) + `index.html:7744-7917` (Exp object)
+
+**User request:** "Di export data tambahkan pilihan, export seluruh data santri secara lengkap, atau kegiatan sub kegiatan dan anggotanya, atau export data perizinan dan sakit"
+
+**Implementasi:**
+1. **Data Santri Lengkap** (`exportSantriLengkap`) — santri + kamar + catatanSantri + sesi + absensi + pelanggaran + perizinan + uzur + catatanSakit. Difilter per-santri: hanya data yang berhubungan dengan santri yang ada.
+2. **Kegiatan & Sub-Kegiatan** (`exportKegiatanLengkap`) — kegiatan + subKeg + anggota + sesi + absensi. Semua data terkait struktur kegiatan.
+3. **Perizinan & Catatan Sakit** (`exportPerizinanSakit`) — perizinan + catatanSakit, dengan enrichment `sntNama` (nama santri) supaya file JSON lebih mudah dibaca.
+
+Format: JSON dengan metadata `exportedAt`, `exportType`, `version`, `tenant_ns`, `tenant_nama`, `tenant_tipe`. Bisa di-restore via menu Import Backup (pilih file JSON).
+
+### Fix 11: Fitur hapus selain hari ini tidak berfungsi
+**Lokasi:** `index.html:5996-6096` (`_resetHistoryExceptToday` + `_confirmResetHistoryExceptToday` + `_doResetHistoryExceptToday`)
+
+**Akar masalah:**
+1. Fungsi dipanggil lewat long-press v3.0 text di Pengaturan, tapi `_doResetHistoryExceptToday` cek `_needAdmin()` di awal — jika user belum aktifkan Mode Admin, fungsi exit diam-diam tanpa feedback.
+2. Hanya hapus 4 store: sesi, absensi, auditLog, pelanggaran. Tidak hapus perizinan, catatanSakit, uzur.
+3. Tidak flush write queue ke cloud — tombstone tertahan di queue, cloud belum kehapus sampai queue flush.
+
+**Fix:**
+- Hapus `_needAdmin()` check — ganti dengan konfirmasi PIN admin eksplisit via `_showAdminPinDialog` (lebih aman & jelas)
+- Tambah hapus 3 store baru: perizinan (yang `tglSelesai < today`), catatanSakit (yang `status === 'sembuh'` DAN `tglMulai < today`), uzur (yang `status !== 'aktif'` DAN `tglMulai < today`)
+- Tambah `FBSync._flushWrites()` setelah hapus — tombstone langsung terkirim ke cloud
+- Tambah `FBSync._invalidateCache()` — nav berikutnya re-pull fresh data
+- Tambah `safeDel` helper dengan error handling per-item (count sukses + error)
+- Dialog konfirmasi yang jelas: list semua data yang akan dihapus + yang TIDAK dihapus
+- Re-render halaman aktif setelah hapus (dash/rek/pel/kg/izn)
+
+### Test Results
+```
+Test 1 (Scroll fix CSS):        8/8 ✅
+Test 2 (Export menu):           8/8 ✅
+Test 3 (Reset history fix):     10/10 ✅
+Test 4 (Reset logic sim):       PASSED ✅
+Test 5 (Export filter sim):     PASSED ✅
+TOTAL: 28/28 ✅ ALL PASSED
+```
+
+Test script: `scripts/test_audit_v3.js` — jalankan dengan `node scripts/test_audit_v3.js`

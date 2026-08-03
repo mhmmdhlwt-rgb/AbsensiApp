@@ -49,7 +49,8 @@
   --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%2322d9a8' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html{font-size:16px;touch-action:manipulation}body{font-family:var(--fb);background:var(--bg);color:var(--t1);min-height:100vh;overflow-x:hidden;transition:background .4s var(--ease2),color .4s var(--ease2)}
+html{font-size:16px;touch-action:manipulation;overscroll-behavior:none;-webkit-overflow-scrolling:touch}
+body{font-family:var(--fb);background:var(--bg);color:var(--t1);min-height:100vh;overflow-x:hidden;overscroll-behavior:none;transition:background .4s var(--ease2),color .4s var(--ease2)}
 button{font-family:inherit;border:none;cursor:pointer;outline:none;background:none;touch-action:manipulation}
 input,textarea,select{font-family:inherit;outline:none;border:none;touch-action:manipulation}
 /* PERFORMANCE: pakai will-change untuk elemen yang sering animasi */
@@ -61,7 +62,17 @@ input,textarea,select{font-family:inherit;outline:none;border:none;touch-action:
 }
 body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 90% 55% at 15% -8%,rgba(13,181,127,.16) 0%,transparent 62%),radial-gradient(ellipse 65% 45% at 88% 105%,rgba(201,162,39,.14) 0%,transparent 62%),var(--geo-pattern);pointer-events:none;z-index:0}
 [data-theme=dark] body::before{background:radial-gradient(ellipse 90% 55% at 15% -8%,rgba(34,217,168,.13) 0%,transparent 62%),radial-gradient(ellipse 65% 45% at 88% 105%,rgba(212,175,55,.09) 0%,transparent 62%),var(--geo-pattern)}
-#app{position:relative;z-index:1;min-height:100vh;padding-bottom:106px}
+/* AUDIT v3 FIX: Scroll jump fix — cegah scroll chaining di #app */
+/* Sebelumnya, scroll di child container yang sudah sampai atas akan memicu
+   browser scroll parent (body/window) ke atas — ini penyebab "scroll sedikit
+   ke atas, tiba2 loncat ke halaman paling atas".
+   Solusi: #app jadi scroll container utama dengan overscroll-behavior:contain.
+   Body tidak scroll, hanya #app yang scroll. Ini mengisolasi scroll per-page. */
+#app{position:relative;z-index:1;height:100vh;overflow-y:auto;overflow-x:hidden;padding-bottom:106px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scroll-behavior:auto}
+/* Fix: page container juga cegah scroll chaining */
+.pg{overscroll-behavior:contain}
+/* Fix: semua container scrollable internal containment */
+.pb100{overscroll-behavior:contain}
 /* LOGIN */
 #ls{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;background:var(--bg);overflow-y:auto;transition:opacity .5s var(--ease2),transform .5s var(--ease2)}
 #ls.hide{opacity:0;transform:scale(1.05);pointer-events:none}
@@ -477,6 +488,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   /* Sembunyikan bottom nav mobile */
   #bnav{display:none !important}
   /* Konten digeser kanan untuk sidebar */
+  /* AUDIT v3: #app sekarang height:100vh + overflow-y:auto, jadi padding-bottom:0 OK */
   #app{padding-bottom:0 !important;padding-left:220px}
   #main-app{padding-left:220px}
 
@@ -5171,7 +5183,8 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
         <div class="sc3">
           <div class="sr2" onclick="App.importSnt()"><div class="si4">&#x2193;</div><div class="st3"><div class="sl3">Import Santri</div><div class="sv">Massal via teks/CSV</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="App._syncNfcAssalam()"><div class="si4" style="background:rgba(13,181,127,.12);border-color:rgba(13,181,127,.22);color:var(--a1)">\uD83D\uDCE1</div><div class="st3"><div class="sl3">Sinkron NFC UID Assalam</div><div class="sv">Cocokkan NFC UID dari data scan ke santri existing (by nama/NIS)</div></div><div class="sa">\u2192</div></div>
-          <div class="sr2" onclick="Exp.backupJSON()"><div class="si4">&#x2191;</div><div class="st3"><div class="sl3">Export Backup JSON</div><div class="sv">Unduh semua data (santri, kegiatan, absensi, perizinan, dll)</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="Exp.showExportMenu()"><div class="si4">&#x2191;</div><div class="st3"><div class="sl3">Export Data Lengkap</div><div class="sv">Pilih: Santri / Kegiatan / Perizinan & Sakit</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="Exp.backupJSON()"><div class="si4">&#x1F4BE;</div><div class="st3"><div class="sl3">Export Backup JSON (Semua)</div><div class="sv">Unduh semua data untuk backup/restore</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="Exp.showImportBackup()"><div class="si4">&#x2B06;</div><div class="st3"><div class="sl3">Import / Pulihkan Backup</div><div class="sv">Kembalikan dari file JSON</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="App.showAudit()"><div class="si4">&#x2261;</div><div class="st3"><div class="sl3">Audit Log</div></div><div class="sa">\u2192</div></div>
         </div>
@@ -5981,30 +5994,105 @@ window.open(url,'_blank');
   },
   _verLpCancel(){ clearTimeout(App._verLpTimer); },
   _resetHistoryExceptToday(){
-    if(!_needAdmin())return;
+    // ── AUDIT v3 FIX: Hapus _needAdmin() check di sini ──
+    // Sebelumnya, fungsi ini dipanggil lewat long-press v3.0 text di Pengaturan.
+    // Saat user klik "Hapus Riwayat Lama", _doResetHistoryExceptToday dipanggil
+    // dan langsung exit karena _needAdmin() false (user belum aktifkan Mode Admin).
+    // User tidak sadar kenapa tidak terjadi apa-apa.
+    // Sekarang: konfirmasi PIN admin langsung di dialog ini (lebih aman & jelas).
     const today=_todayLocal();
     OS(`<div class="cw"><div class="ci3">&#x1F9F9;</div><div class="ct3">Hapus Semua Riwayat Lama?</div>
-      <div class="cs3">Ini akan menghapus PERMANEN seluruh <strong>sesi, absensi, audit log, dan pelanggaran SEBELUM hari ini (${today})</strong> — baik di perangkat ini maupun di cloud.<br><br>Data hari ini, data santri, kegiatan, kamar, catatan, dan perizinan TIDAK terhapus. Tidak bisa dibatalkan setelah ditekan.</div>
-      <div class="cbs"><button class="cc" onclick="CS()">Batal</button><button class="co" onclick="App._doResetHistoryExceptToday()">Hapus Riwayat Lama</button></div></div>`);
+      <div class="cs3" style="text-align:left;line-height:1.6">Ini akan menghapus PERMANEN seluruh data berikut yang <strong>tanggalnya BUKAN hari ini (${today})</strong>:<br><br>
+        📋 <strong>Sesi absensi</strong> (semua sesi sebelum hari ini)<br>
+        ✅ <strong>Absensi</strong> (yang terkait sesi lama)<br>
+        📜 <strong>Audit log</strong> (riwayat perubahan absensi)<br>
+        ⚠️ <strong>Pelanggaran</strong> (yang tanggalnya bukan hari ini)<br>
+        📝 <strong>Perizinan</strong> (yang sudah selesai/sebelum hari ini)<br>
+        🤒 <strong>Catatan sakit</strong> (yang sudah sembuh/sebelum hari ini)<br>
+        📖 <strong>Uzur</strong> (yang sudah berakhir/sebelum hari ini)<br><br>
+        <strong>TIDAK terhapus:</strong> data santri, kegiatan, sub-kegiatan, kamar, anggota, peraturan, kalam, users, settings, catatan santri.<br><br>
+        Data dihapus baik di perangkat ini MAUPUN di cloud (semua perangkat). <strong>Tidak bisa dibatalkan.</strong>
+      </div>
+      <div class="cbs"><button class="cc" onclick="CS()">Batal</button><button class="co" style="background:#ef4444" onclick="App._confirmResetHistoryExceptToday()">🗑 Hapus Riwayat Lama</button></div></div>`);
+  },
+  // AUDIT v3: Konfirmasi PIN admin sebelum eksekusi hapus
+  _confirmResetHistoryExceptToday(){
+    CS();
+    _showAdminPinDialog('🔐 Konfirmasi Admin', 'Masukkan PIN admin untuk hapus riwayat', () => {
+      App._doResetHistoryExceptToday();
+    });
   },
   async _doResetHistoryExceptToday(){
-    if(!_needAdmin())return;
-    CS();T('&#x23F3; Menghapus riwayat lama... jangan tutup aplikasi.',6000);
+    // AUDIT v3: Hapus _needAdmin() check (sudah di-confirm via PIN di _confirmResetHistoryExceptToday)
+    T('⏳ Menghapus riwayat lama... jangan tutup aplikasi.', 8000);
     const today=_todayLocal();
+    let n=0, errors=0;
     try{
-      const [sesAll,absAll,audAll,pelAll]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('auditLog'),DB.ga('pelanggaran')]);
-      const oldSesIds=new Set(sesAll.filter(s=>s.tanggal!==today).map(s=>s.id));
-      let n=0;
-      for(const a of absAll){ if(oldSesIds.has(a.sesiId)){ await DB.d('absensi',a.id); n++; } }
-      for(const a of audAll){ if(oldSesIds.has(a.sid)){ await DB.d('auditLog',a.id); n++; } }
-      for(const s of sesAll){ if(s.tanggal!==today){ await DB.d('sesi',s.id); n++; } }
-      for(const p of pelAll){ if(p.tanggal!==today){ await DB.d('pelanggaran',p.id); n++; } }
-      T('&#x2705; '+n+' data riwayat lama dihapus. Data hari ini tetap aman.',4500);
+      // ── AUDIT v3 FIX: Hapus JUGA perizinan & catatanSakit & uzur ──
+      // Sebelumnya hanya hapus sesi, absensi, auditLog, pelanggaran.
+      // User complaint: "tidak menghapus apa2, seharusnya menghapus seluruh
+      // data absensi dan riwayat, rekapan, perizinan, timeline kecuali hari ini."
+      const [sesAll,absAll,audAll,pelAll,perAll,sakitAll,uzurAll] = await Promise.all([
+        DB.ga('sesi'), DB.ga('absensi'), DB.ga('auditLog'), DB.ga('pelanggaran'),
+        DB.ga('perizinan'), DB.ga('catatanSakit'), DB.ga('uzur')
+      ]);
+      // Sesi lama = tanggal bukan hari ini
+      const oldSesIds = new Set(sesAll.filter(s => s.tanggal !== today).map(s => s.id));
+      // Helper: hapus satu per satu, count sukses & error
+      const safeDel = async (store, id) => {
+        try { await DB.d(store, id); n++; }
+        catch(e) { errors++; console.warn('[Reset] del error', store, id, e.message); }
+      };
+      // 1. Absensi: hapus yang sesiId-nya lama
+      for(const a of absAll){
+        if(oldSesIds.has(a.sesiId)){ await safeDel('absensi', a.id); }
+      }
+      // 2. Audit log: hapus yang sid (sesiId) nya lama, ATAU tidak punya sid (legacy)
+      for(const a of audAll){
+        if(a.sid && oldSesIds.has(a.sid)){ await safeDel('auditLog', a.id); }
+        else if(!a.sid){ await safeDel('auditLog', a.id); } // legacy audit log tanpa sid
+      }
+      // 3. Sesi: hapus yang tanggal bukan hari ini
+      for(const s of sesAll){
+        if(s.tanggal !== today){ await safeDel('sesi', s.id); }
+      }
+      // 4. Pelanggaran: hapus yang tanggal bukan hari ini
+      for(const p of pelAll){
+        if(p.tanggal && p.tanggal !== today){ await safeDel('pelanggaran', p.id); }
+        else if(!p.tanggal){ await safeDel('pelanggaran', p.id); } // fallback: hapus yang tidak punya tanggal
+      }
+      // 5. Perizinan: hapus yang tglSelesai sebelum hari ini (sudah selesai)
+      for(const p of perAll){
+        if(p.tglSelesai && p.tglSelesai < today){ await safeDel('perizinan', p.id); }
+      }
+      // 6. Catatan sakit: hapus yang sudah sembuh DAN tglMulai sebelum hari ini
+      for(const s of sakitAll){
+        if(s.status === 'sembuh' && s.tglMulai && s.tglMulai < today){
+          await safeDel('catatanSakit', s.id);
+        }
+        // Catatan sakit yang belum sembuh TIDAK dihapus (masih aktif)
+      }
+      // 7. Uzur: hapus yang sudah berakhir (status !== 'aktif') DAN tanggal sebelum hari ini
+      for(const u of uzurAll){
+        if(u.status && u.status !== 'aktif' && u.tglMulai && u.tglMulai < today){
+          await safeDel('uzur', u.id);
+        }
+      }
+      // Flush write queue ke cloud supaya tombstone langsung terkirim
+      if(FBSync && FBSync._flushWrites){ FBSync._flushWrites(); }
+      T(`✅ ${n} data riwayat lama dihapus${errors?` (${errors} error)`:''}. Data hari ini tetap aman.`, 5000);
+      // Re-render halaman aktif
       if(S.page==='dash')await this.dash();
       else if(S.page==='rek')await this.renderRek();
       else if(S.page==='pel')await this.renderPel();
       else if(S.page==='kg')await this.renderKg();
-    }catch(e){ T('&#x274C; Gagal menghapus: '+(e.message||e)); }
+      else if(S.page==='izn')await this.renderIzn();
+      // Invalidate cache supaya nav berikutnya re-pull fresh data
+      if(FBSync && FBSync._invalidateCache){ FBSync._invalidateCache(); }
+    }catch(e){
+      console.error('[Reset] error:', e);
+      T('❌ Gagal menghapus: ' + (e.message||e), 5000);
+    }
   },
 
   async search(){
@@ -7729,6 +7817,180 @@ const Tmpl={
 };
 
 const Exp={
+  // ── AUDIT v3: Export menu dengan 3 opsi terpisah ──
+  // User request: "tambahkan pilihan, export seluruh data santri secara lengkap,
+  // atau kegiatan sub kegiatan dan anggotanya, atau export data perizinan dan sakit"
+  showExportMenu(){
+    OS(`<div class="sh">📤 Export Data</div><div class="sb" style="padding-bottom:70px">
+      <div style="font-size:12px;color:var(--t3);margin-bottom:14px;line-height:1.5">Pilih jenis data yang ingin diexport. Format JSON — bisa dibuka di Excel atau di-restore kembali via menu Import Backup (pilih file JSON).</div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="Exp.exportSantriLengkap()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(13,181,127,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">👥</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Data Santri Lengkap</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px;line-height:1.4">Santri + kamar + catatan + riwayat absensi + pelanggaran + perizinan + uzur + catatan sakit (per santri)</div>
+          </div>
+          <div style="color:var(--a1);font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="Exp.exportKegiatanLengkap()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(37,99,235,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📋</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Kegiatan & Sub-Kegiatan</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px;line-height:1.4">Kegiatan + sub-kegiatan + anggota kamar per sub-kegiatan + sesi absensi (semua tanggal)</div>
+          </div>
+          <div style="color:var(--a1);font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="Exp.exportPerizinanSakit()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📝</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Perizinan & Catatan Sakit</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px;line-height:1.4">Semua data perizinan (izin pulang, dispensasi, dll) + catatan sakit (diagnosis, penanganan, status sembuh)</div>
+          </div>
+          <div style="color:var(--a1);font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:var(--t4);margin-top:14px;line-height:1.5;text-align:center">💡 Untuk export SEMUA data (termasuk settings, users, audit log), gunakan "Export Backup JSON (Semua)" di atas.</div>
+    </div>`);
+  },
+
+  // Export 1: Data Santri Lengkap
+  // Mencakup: santri, kamar, catatanSantri, absensi (semua), pelanggaran, perizinan, uzur, catatanSakit
+  // Difilter per-santri: hanya data yang berhubungan dengan santri yang ada
+  async exportSantriLengkap(){
+    try {
+      T('⏳ Menyiapkan data santri...', 2000);
+      const [santri, kamar, catatanSantri, absensi, pelanggaran, perizinan, uzur, catatanSakit, sesi] = await Promise.all([
+        DB.ga('santri'), DB.ga('kamar'), DB.ga('catatanSantri'),
+        DB.ga('absensi'), DB.ga('pelanggaran'), DB.ga('perizinan'),
+        DB.ga('uzur'), DB.ga('catatanSakit'), DB.ga('sesi')
+      ]);
+      const santriIds = new Set(santri.map(s => s.id));
+      const data = {
+        exportedAt: new Date().toISOString(),
+        exportType: 'santri_lengkap',
+        version: '6',
+        tenant_ns: localStorage.getItem('tenant_ns'),
+        tenant_nama: localStorage.getItem('tenant_nama'),
+        tenant_tipe: localStorage.getItem('tenant_tipe'),
+        santri: santri,
+        kamar: kamar,
+        // Filter catatanSantri: hanya untuk santri yang ada
+        catatanSantri: catatanSantri.filter(c => santriIds.has(c.sntId)),
+        // Sesi diperlukan untuk konteks absensi
+        sesi: sesi,
+        // Absensi: semua (karena berhubungan dengan santri via sntId)
+        absensi: absensi.filter(a => santriIds.has(a.sntId)),
+        // Pelanggaran: hanya untuk santri yang ada
+        pelanggaran: pelanggaran.filter(p => santriIds.has(p.sntId)),
+        // Perizinan: hanya untuk santri yang ada
+        perizinan: perizinan.filter(p => santriIds.has(p.sntId)),
+        // Uzur: hanya untuk santri yang ada
+        uzur: uzur.filter(u => santriIds.has(u.sntId)),
+        // Catatan sakit: hanya untuk santri yang ada
+        catatanSakit: catatanSakit.filter(s => santriIds.has(s.sntId)),
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `santri-lengkap-${_todayLocal()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      CS();
+      T(`✅ Export santri lengkap! ${santri.length} santri, ${absensi.length} absensi, ${perizinan.length} perizinan, ${catatanSakit.length} catatan sakit`, 5000);
+    } catch(e) {
+      console.error('[Export] santriLengkap error:', e);
+      T('❌ Gagal export: ' + (e.message || e), 4000);
+    }
+  },
+
+  // Export 2: Kegiatan + Sub-Kegiatan + Anggota + Sesi
+  async exportKegiatanLengkap(){
+    try {
+      T('⏳ Menyiapkan data kegiatan...', 2000);
+      const [kegiatan, subKeg, anggota, sesi, absensi] = await Promise.all([
+        DB.ga('kegiatan'), DB.ga('subKeg'), DB.ga('anggota'),
+        DB.ga('sesi'), DB.ga('absensi')
+      ]);
+      const data = {
+        exportedAt: new Date().toISOString(),
+        exportType: 'kegiatan_lengkap',
+        version: '6',
+        tenant_ns: localStorage.getItem('tenant_ns'),
+        tenant_nama: localStorage.getItem('tenant_nama'),
+        tenant_tipe: localStorage.getItem('tenant_tipe'),
+        kegiatan: kegiatan,
+        subKeg: subKeg,
+        // Anggota: keanggotaan kamar per sub-kegiatan
+        anggota: anggota,
+        // Sesi: semua sesi absensi (semua tanggal)
+        sesi: sesi,
+        // Absensi: semua (untuk konteks kehadiran per sesi)
+        absensi: absensi,
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kegiatan-lengkap-${_todayLocal()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      CS();
+      T(`✅ Export kegiatan lengkap! ${kegiatan.length} kegiatan, ${subKeg.length} sub-kegiatan, ${anggota.length} anggota, ${sesi.length} sesi`, 5000);
+    } catch(e) {
+      console.error('[Export] kegiatanLengkap error:', e);
+      T('❌ Gagal export: ' + (e.message || e), 4000);
+    }
+  },
+
+  // Export 3: Perizinan & Catatan Sakit
+  async exportPerizinanSakit(){
+    try {
+      T('⏳ Menyiapkan data perizinan & sakit...', 2000);
+      const [perizinan, catatanSakit, santri] = await Promise.all([
+        DB.ga('perizinan'), DB.ga('catatanSakit'), DB.ga('santri')
+      ]);
+      const santriMap = {};
+      santri.forEach(s => { santriMap[s.id] = s.nama; });
+      const data = {
+        exportedAt: new Date().toISOString(),
+        exportType: 'perizinan_sakit',
+        version: '6',
+        tenant_ns: localStorage.getItem('tenant_ns'),
+        tenant_nama: localStorage.getItem('tenant_nama'),
+        tenant_tipe: localStorage.getItem('tenant_tipe'),
+        perizinan: perizinan.map(p => ({
+          ...p,
+          sntNama: santriMap[p.sntId] || '-'
+        })),
+        catatanSakit: catatanSakit.map(s => ({
+          ...s,
+          sntNama: santriMap[s.sntId] || '-'
+        })),
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `perizinan-sakit-${_todayLocal()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      CS();
+      T(`✅ Export perizinan & sakit! ${perizinan.length} perizinan, ${catatanSakit.length} catatan sakit`, 5000);
+    } catch(e) {
+      console.error('[Export] perizinanSakit error:', e);
+      T('❌ Gagal export: ' + (e.message || e), 4000);
+    }
+  },
+
   async _txt(kgId,date){
 const [ses,abs,snt,kg,sk]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg')]);
 const k=kg.find(x=>x.id===kgId);
@@ -8624,18 +8886,27 @@ async function init(){
         }
       }
       // Handle main page - cegah window scroll naik
+      // AUDIT v3: Karena #app sekarang scroll container utama (height:100vh,
+      // overflow-y:auto), kita lock #app (bukan body) saat keyboard muncul.
       if(isKbVisible&&!_kbShown){
         _kbShown=true;
-        document.body.style.position='fixed';
-        document.body.style.width='100%';
-        document.body.style.top='-'+(window.scrollY||0)+'px';
+        const appEl=document.getElementById('app');
+        if(appEl){
+          appEl._savedScrollTop=appEl.scrollTop;
+          appEl.style.position='fixed';
+          appEl.style.width='100%';
+          appEl.style.top='-'+(appEl._savedScrollTop||0)+'px';
+        }
       } else if(!isKbVisible&&_kbShown){
         _kbShown=false;
-        const scrollY=parseInt(document.body.style.top||'0')*-1;
-        document.body.style.position='';
-        document.body.style.width='';
-        document.body.style.top='';
-        window.scrollTo(0,scrollY);
+        const appEl=document.getElementById('app');
+        if(appEl){
+          const scrollY=parseInt(appEl.style.top||'0')*-1;
+          appEl.style.position='';
+          appEl.style.width='';
+          appEl.style.top='';
+          appEl.scrollTop=scrollY;
+        }
       }
     };
     window.visualViewport.addEventListener('resize',onVP,{passive:true});
@@ -9044,9 +9315,11 @@ const ChatModule = {
     }
     // Start poll
     clearInterval(this._pollTimer);
+    // AUDIT v3c: Naikkan dari 5s ke 15s — 3x fewer reads. Chat tidak perlu
+    // real-time tiap 5 detik, 15 detik cukup untuk notifikasi chat baru.
     this._pollTimer = setInterval(()=>{
       if(S.page==='chat') this.loadMessages();
-    }, 5000);
+    }, 15000);
     // Attach swipe listeners after render
     setTimeout(()=>this._attachSwipe(), 200);
   },
@@ -11345,8 +11618,23 @@ const FBSync = (() => {
 
   // Pull lengkap semua store — untuk setup awal / setelah login
   async function pullAll() {
-    const ALL = ['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','users','kamar','catatanSantri','pelanggaran','peraturan','settings','kalam','perizinan','uzur','catatanSakit'];
-    await pull(ALL);
+    // ── AUDIT v3c: Hanya pull store esensial saat login ──
+    // Sebelumnya: pullAll memuat 17 store sekaligus = ~850 docs per login.
+    // Untuk 5 musyrifah login per hari = 4,250 reads hanya dari login.
+    // Sekarang: hanya pull store yang SANGAT esensial untuk dashboard:
+    //   - santri (untuk nama di dashboard)
+    //   - sesi (untuk absensi hari ini)
+    //   - absensi (untuk rekap hari ini)
+    //   - kegiatan (untuk list kegiatan)
+    //   - settings (untuk nama asrama, jenis kelamin)
+    //   - kamar (untuk filter kamar)
+    // Store lain (auditLog, peraturan, kalam, catatanSantri, pelanggaran,
+    // perizinan, uzur, catatanSakit, anggota, users, subKeg) akan di-pull
+    // on-demand saat user navigasi ke halaman terkait (dengan cache 5 menit).
+    const ESSENTIAL = ['santri', 'sesi', 'absensi', 'kegiatan', 'settings', 'kamar'];
+    await pull(ESSENTIAL);
+    // Tandai essential stores sebagai sudah di-pull (cache 5 menit)
+    ESSENTIAL.forEach(s => _markPulled(s));
   }
 
   // ════════════════════════════════════════════════════════
@@ -11406,71 +11694,26 @@ const FBSync = (() => {
   // ════════════════════════════════════════════════════════
   // ABSENSI POLL — saat halaman abs terbuka, poll tiap 8 detik
   // ════════════════════════════════════════════════════════
+  // ── AUDIT v3c: HAPUS startAbsPoll — onSnapshot sudah handle realtime ──
+  // Sebelumnya: saat user buka halaman absensi, setInterval tiap 8 detik
+  // memuat SELURUH koleksi absensi via _fbFetch('/absensi'). Untuk tenant
+  // dengan 5,000 absensi docs × 1,350 polls/hari = 6.7 JUTA reads/hari per device!
+  // Ini penyebab utama Firebase exceed free tier (396K reads dalam 1 hari).
+  //
+  // Sekarang: onSnapshot untuk absensi sudah aktif (di _REALTIME_STORES).
+  // onSnapshot adalah push-based — Firestore aktif kirim perubahan ke device
+  // tanpa perlu poll. Initial load hanya 1x saat listener attach (bukan tiap 8 detik).
+  //
+  // Fungsi startAbsPoll/stopAbsPoll tetap di-keep sebagai no-op (empty function)
+  // supaya kode existing yang memanggil tidak crash (backward compat).
   function startAbsPoll(sid) {
-    stopAbsPoll();
-    _absPoll = setInterval(async () => {
-      if (S.page !== 'abs' || !navigator.onLine) return;
-      try {
-        // Pull hanya absensi untuk sesi ini — TAPI juga sertakan semua tombstone
-        // (deleted:true) karena tombstone tidak punya field sesiId (hanya
-        // {id, deleted, updatedAt}) dan perlu diproses supaya hapus di perangkat
-        // lain ikut tersinkron bahkan saat user sedang melihat sesi tersebut.
-        const fbData = await _fbFetch('/absensi').catch(()=>null);
-        if (!fbData) return;
-        const fbItems = Object.values(fbData).filter(x => x && (x.sesiId === sid || x.deleted));
-        let changed = false;
-        for (const fbAb of fbItems) {
-          delete fbAb._ts; delete fbAb._srvTs;
-          // ── TOMBSTONE: absensi dihapus di perangkat lain → hapus lokal + reset UI ──
-          if (fbAb.deleted) {
-            const loc = await DB.g('absensi', fbAb.id).catch(()=>null);
-            if (loc && !loc.deleted && (fbAb.updatedAt||0) >= (loc.updatedAt||0)) {
-              // Catatan: tombstone dari FB hanya berisi {id, deleted, updatedAt} —
-              // TIDAK punya sntId. Pakai loc.sntId (record lokal yang akan dihapus)
-              // untuk menemukan kartu UI yang perlu di-reset.
-              if (_origD) await _origD('absensi', fbAb.id);
-              else await DB.d('absensi', fbAb.id);
-              // Hanya reset UI card kalau tombstone ini untuk sesi yang sedang dilihat
-              if (loc.sesiId === sid) _resetAbsCard(loc.sntId);
-              changed = true;
-            }
-            continue;
-          }
-          const loc = await DB.g('absensi', fbAb.id);
-          if (!loc || (fbAb.updatedAt||0) > (loc.updatedAt||0)) {
-            await _origP('absensi', fbAb);
-            // Patch UI langsung tanpa re-render penuh
-            _patchAbsCard(fbAb);
-            changed = true;
-          }
-        }
-        if (changed) {
-          if (S._sesiId) App._updSum(S._sesiId).catch(()=>{});
-          _dot('ok');
-        }
-      } catch(e) {}
-    }, 8000);
+    // NO-OP: onSnapshot untuk absensi sudah aktif, tidak perlu poll.
+    // Jika ada perubahan absensi di device lain, onSnapshot akan push ke device ini
+    // dan _handleDocChange akan update IDB + UI card.
+    console.log('[FBSync] startAbsPoll no-op (onSnapshot handles realtime for absensi)');
   }
-
-  // Reset kartu absensi ke state 'none' (tidak ditandai) — dipakai saat
-  // absensi dihapus (tombstone) di perangkat lain.
-  function _resetAbsCard(sntId) {
-    const card = document.getElementById('ac-' + sntId); if (!card) return;
-    card.className = 'ac sn-none';
-    card.querySelectorAll('.sb3').forEach(b => { b.className = 'sb3'; });
-  }
-
   function stopAbsPoll() {
-    if (_absPoll) { clearInterval(_absPoll); _absPoll = null; }
-  }
-
-  function _patchAbsCard(ab) {
-    const card = document.getElementById('ac-' + ab.sntId); if (!card) return;
-    const sts=['hadir','alpha','izin','sakit','terlambat','uzur'];
-    const cls=['ah','aa','ai','as','at','au'];
-    const sc={hadir:'sh2',alpha:'sa',izin:'si',sakit:'ss',terlambat:'sl2',uzur:'su',none:'sn-none'};
-    card.className = 'ac ' + (sc[ab.status]||'sn-none');
-    card.querySelectorAll('.sb3').forEach((b,i) => { b.className='sb3'+(ab.status===sts[i]?' '+cls[i]:''); });
+    // NO-OP: tidak ada interval untuk di-clear
   }
 
   // ════════════════════════════════════════════════════════
@@ -11518,17 +11761,16 @@ const FBSync = (() => {
         // Sebelumnya, re-render via innerHTML me-reset scrollTop ke 0 dan
         // hilangkan focus dari input aktif. Ini penyebab user complaint:
         // "scroll ke atas sedikit tiba2 langsung loncat ke halaman paling atas".
-        // Sekarang: simpan scrollTop semua scrollable container + activeElement
-        // + selection range, lalu restore setelah re-render.
+        // Sekarang: simpan scrollTop container utama (#app) + .sb (bottom sheet)
+        // + activeElement + selection range, lalu restore setelah re-render.
+        // AUDIT v3 b: Optimasi — jangan querySelectorAll('*') (ribuan elemen),
+        // cukup simpan scrollTop dari #app + .sb + #chat-messages-wrap saja.
         const _scrollStates = [];
-        document.querySelectorAll('*').forEach(el => {
-          if (el.scrollTop > 0 || el.scrollLeft > 0) {
-            // Hanya simpan elemen dengan scroll non-zero ( hemat memory)
-            _scrollStates.push({
-              el: el,
-              top: el.scrollTop,
-              left: el.scrollLeft
-            });
+        const _scrollContainerIds = ['app', 'bs', 'si', 'chat-messages-wrap'];
+        _scrollContainerIds.forEach(id => {
+          const el = document.getElementById(id);
+          if (el && (el.scrollTop > 0 || el.scrollLeft > 0)) {
+            _scrollStates.push({ el, top: el.scrollTop, left: el.scrollLeft });
           }
         });
         // Simpan active element + selection
@@ -11825,16 +12067,23 @@ const FBSync = (() => {
   // yang mungkin terlewat oleh listener. Dipanggil periodik (5 menit)
   // dan setelah pullAll pertama.
   async function _sweepTombstones() {
+    // ── AUDIT v3c: HAPUS pull 4 store dari _sweepTombstones ──
+    // Sebelumnya: _sweepTombstones tiap 5 menit memanggil pull(['kegiatan',
+    // 'subKeg', 'anggota', 'sesi']) — itu 4 store × ~50 docs × 288 sweeps/hari
+    // = 57,600 reads/hari hanya dari tombstone sweep!
+    // Sekarang: HANYA sweep lokal (IDB) — hapus item dengan deleted:true dari
+    // IndexedDB. Tidak ada Firestore read sama sekali. Tombstone dari cloud
+    // sudah ditangkap oleh onSnapshot (untuk absensi & sesi) atau oleh
+    // pullForNav saat user navigasi ke halaman terkait (dengan cache 5 menit).
     if (!navigator.onLine) return;
     const STORES = ['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','users','kamar','catatanSantri','pelanggaran','peraturan','settings','kalam','perizinan','uzur','catatanSakit'];
     let cleaned = 0;
-    // 1. Sweep lokal: hapus item dengan deleted:true dari IDB
+    // Sweep lokal: hapus item dengan deleted:true dari IDB (ZERO Firestore reads)
     for (const store of STORES) {
       try {
         const all = await DB.ga(store).catch(()=>[]);
         for (const item of all) {
           if (item.deleted) {
-            // Hapus lokal (pakai _origD supaya tidak enqueue tombstone lagi)
             try { await (_origD ? _origD(store, item.id) : DB.d(store, item.id)); cleaned++; }
             catch(e) {}
           }
@@ -11846,15 +12095,8 @@ const FBSync = (() => {
       if (window.T) T('🧹 ' + cleaned + ' data usang dibersihkan');
       _scheduleReRender();
     }
-    // 2. Cek FB untuk tombstone yang mungkin terlewat — pull ringan
-    // untuk kegiatan & subKeg (store paling kritis untuk sync deletion)
-    try {
-      await pull(['kegiatan', 'subKeg', 'anggota', 'sesi']).catch(()=>{});
-    } catch(e) {}
-    // 3. BUG FIX: health check listener real-time. Kalau jumlah listener
-    // aktif tidak sesuai jumlah store yang seharusnya (mis. ada yang mati
-    // tanpa sempat memicu callback error-nya sendiri — edge case SDK),
-    // restart semua listener dari nol sebagai jaring pengaman tambahan.
+    // Health check listener real-time. Kalau jumlah listener aktif tidak sesuai
+    // jumlah store yang seharusnya, restart semua listener dari nol.
     if (_unsubs.length < _LISTENER_STORES.length) {
       console.warn('[FBSync] Listener health check: hanya', _unsubs.length, 'dari', _LISTENER_STORES.length, '— restart semua listener.');
       startListeners();
@@ -12011,23 +12253,24 @@ const FBSync = (() => {
 
 // ════════════════════════════════════════════════════════════
 // BACKGROUND REFRESH — flush writes + tombstone sweep
+// AUDIT v3c: Hapus double chat poll. _bgTimer sudah cek chat tiap 30 detik,
+// tidak perlu setInterval(_chatBgCheck, 8000) terpisah.
 // AUDIT v3: Hapus periodic pull 30 detik (boros Reads).
-// Sekarang: hanya flush write queue tiap 10 detik + tombstone sweep 5 menit.
+// Sekarang: hanya flush write queue tiap 30 detik + tombstone sweep 5 menit.
 // Pull cloud dilakukan on-demand saat user navigasi (dengan cache 5 menit)
 // atau saat user klik tombol Refresh di header.
 // ════════════════════════════════════════════════════════════
 let _bgTimer = null;
 function _startBgRefresh() {
   if (_bgTimer) clearInterval(_bgTimer);
+  // AUDIT v3c: Naikkan interval dari 10s ke 30s — chat check + write flush
+  // tidak perlu tiap 10 detik. 30 detik cukup untuk UX yang responsif.
   _bgTimer = setInterval(() => {
     if (!navigator.onLine || document.hidden) return;
     FBSync._flushWrites();
     _chatBgCheck();
-  }, 10000);
-  // ── Tombstone sweep tiap 5 menit ──
-  // Bersihkan tombstone lokal yang tertinggal + cek FB untuk tombstone
-  // yang mungkin terlewat oleh listener. Defensive terhadap bug
-  // "hapus di device A tidak terhapus di device B".
+  }, 30000); // 30 detik (sebelumnya 10 detik)
+  // ── Tombstone sweep tiap 5 menit (ZERO Firestore reads) ──
   if (window._bgSweepTimer) clearInterval(window._bgSweepTimer);
   window._bgSweepTimer = setInterval(() => {
     if (!navigator.onLine || document.hidden) return;
@@ -12183,8 +12426,10 @@ async function _setupPushNotif(role,sntId){
 
 // ════════════════════════════════════════════════════════════
 // BOOT
+// AUDIT v3c: Hapus setInterval(_chatBgCheck, 8000) — _bgTimer (30s) sudah
+// handle chat check. Double poll = double reads.
 // ════════════════════════════════════════════════════════════
-setTimeout(()=>{FBSync.start();_startBgRefresh();setInterval(_chatBgCheck,8000);},2000);
+setTimeout(()=>{FBSync.start();_startBgRefresh();},2000);
 
 </script>
 <!-- ============================================================ -->

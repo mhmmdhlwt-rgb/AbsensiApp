@@ -1,0 +1,47 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "absensi",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sesiId", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "absensi",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sntId", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "perizinan",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sntId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pelanggaran",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sntId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sesi",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tanggal", "order": "DESCENDING" },
+        { "fieldPath": "kgId", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
