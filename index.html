@@ -69,6 +69,8 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .ls-top{position:relative;text-align:center;padding:48px 32px 22px}
 .ls-logo{width:78px;height:78px;border-radius:24px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:34px;margin:0 auto 14px;box-shadow:var(--shadow-glow),0 1px 0 rgba(255,255,255,.3) inset;animation:flt 3.2s ease-in-out infinite;transform-style:preserve-3d}
 @keyframes flt{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-7px) rotate(2deg)}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+#refresh-btn:active{transform:scale(.88)}
 .ls-title{font-family:var(--fd);font-size:21px;font-weight:800;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:3px}
 .ls-sub{font-size:12px;color:var(--t3)}
 .ls-lbl{font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;text-align:center;margin:0 20px 10px;position:relative}
@@ -894,6 +896,8 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
       </div>
       <div class="ph-acts">
         <button class="ib" id="theme-btn" onclick="toggleTheme()">&#x2600;</button>
+        <!-- AUDIT v3: Tombol Refresh — pull cloud untuk halaman aktif (bypass cache) -->
+        <button class="ib" id="refresh-btn" onclick="App.refreshCurrentPage()" title="Muat ulang data dari cloud">&#x21BB;</button>
         <div class="chat-btn-wrap"><button class="ib" id="chat-btn" onclick="App.nav('chat')" title="Chat &amp; Notifikasi">&#x1F4AC;</button><div id="chat-badge"></div></div><button class="ib" id="search-btn" style="display:none" onclick="App.search()">&#x2315;</button>
         <button class="ib" onclick="App.nav('set')" title="Pengaturan">☰</button>
         <button class="ib" id="ub" onclick="App.userMenu()" style="font-size:11px;font-weight:800">-</button>
@@ -1736,6 +1740,72 @@ const App={
       <button onclick="App.${fnKey}()" style="padding:9px 18px;border-radius:100px;background:rgba(13,181,127,.1);border:1.5px solid rgba(13,181,127,.3);font-size:12px;font-weight:700;color:var(--a1);cursor:pointer">🔄 Coba lagi</button>
     </div>`;
   },
+  // ── AUDIT v3: Refresh halaman aktif dari cloud (bypass cache) ──
+  // Dipanggil oleh tombol Refresh di header. Invalidate cache untuk store
+  // yang relevan dengan halaman aktif, lalu pull cloud + re-render.
+  async refreshCurrentPage() {
+    if (!navigator.onLine) {
+      if (window.T) T('⚠️ Sedang offline. Tidak bisa memuat ulang dari cloud.', 3000);
+      return;
+    }
+    // Animasi rotate pada tombol refresh
+    const btn = document.getElementById('refresh-btn');
+    if (btn) {
+      btn.style.animation = 'spin 0.8s linear';
+      setTimeout(() => { btn.style.animation = ''; }, 800);
+    }
+    if (window.T) T('🔄 Memuat ulang data...', 1500);
+    const pg = S.page;
+    // Mapping halaman → store yang ditampilkan (sinkron dengan NAV_PULL di FBSync)
+    const PAGE_STORES = {
+      dash: ['sesi','absensi','kegiatan','subKeg','kalam','perizinan','uzur','catatanSakit'],
+      kg:   ['kegiatan','subKeg','sesi'],
+      kgd:  ['kegiatan','subKeg','sesi','absensi','anggota'],
+      sub:  ['subKeg','anggota','santri'],
+      abs:  ['absensi','sesi','santri','uzur','kegiatan','subKeg','catatanSakit'],
+      snt:  ['santri','kamar'],
+      sntd: ['santri','catatanSantri','absensi'],
+      profil: ['santri','absensi','catatanSantri','pelanggaran','perizinan','uzur','catatanSakit'],
+      rek:  ['sesi','absensi','santri','kegiatan','subKeg','anggota'],
+      set:  ['users','settings','kalam'],
+      pel:  ['pelanggaran','santri','peraturan','kegiatan','subKeg'],
+      izn:  ['perizinan','santri','settings','catatanSakit'],
+    };
+    const stores = PAGE_STORES[pg] || [];
+    // Force invalidate semua cache (simpler, more reliable)
+    if (FBSync._invalidateCache) FBSync._invalidateCache();
+    // Pull cloud untuk halaman aktif (re-pull meski baru saja di-pull)
+    try {
+      if (pg && stores.length) {
+        // Filter out realtime stores (tidak perlu di-pull, sudah realtime)
+        const toPull = stores.filter(s => !['absensi','sesi'].includes(s));
+        if (toPull.length) await FBSync.pull(toPull);
+      }
+      // Re-render halaman aktif
+      const renderMap = {
+        dash: () => this.dash(),
+        kg:   () => this.renderKg(),
+        kgd:  () => { const id=S._opts?.id; if(id) this.renderKgd(id); },
+        sub:  () => { const id=S._opts?.id; if(id) this.renderSub(id); },
+        abs:  () => { if(S._sesiId) this.renderAbs(S._sesiId, S._skId); },
+        snt:  () => this.renderSnt(),
+        sntd: () => { const id=S._opts?.id; if(id) this.renderProfil(id); },
+        profil: () => { const id=S._opts?.id; if(id) this.renderProfil(id); },
+        rek:  () => this.renderRek(),
+        set:  () => this.renderSet(),
+        pel:  () => this.renderPel(),
+        izn:  () => this.renderIzn(),
+      };
+      const fn = renderMap[pg];
+      if (fn) {
+        await fn();
+        if (window.T) T('✅ Data diperbarui', 1500);
+      }
+    } catch(e) {
+      console.warn('[Refresh] error:', e);
+      if (window.T) T('❌ Gagal memuat ulang: ' + (e.message||e), 3000);
+    }
+  },
   loginUser(uid){
     DB.g('settings','jenis_kelamin').then(jkSet=>{
       const sbt=(jkSet?.value||'perempuan')==='laki'?'Musyrif':'Musyrifah';
@@ -1757,29 +1827,27 @@ const App={
         ub.textContent=S.user.nama.charAt(0);
       }
     }
-    // ── SYNC GUARD: tarik data terbaru dari Firebase dulu
-    // sebelum admin bisa interaksi, supaya tidak timpa data admin lain
-    if(navigator.onLine){
-      const ov=document.createElement('div');
-      ov.id='sync-login-ov';
-      ov.style='position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px';
-      ov.innerHTML=`<div style="font-size:36px;animation:flt 1.5s ease-in-out infinite">☁️</div>
-        <div style="font-family:var(--fd);font-size:15px;font-weight:700;color:var(--t1)">Menyinkronkan data...</div>
-        <div style="font-size:12px;color:var(--t3)">Mengambil data terbaru dari cloud</div>
-        <div style="width:160px;height:4px;background:var(--dv);border-radius:100px;overflow:hidden;margin-top:4px">
-          <div id="sync-login-bar" style="height:100%;width:0%;background:var(--grad);border-radius:100px;transition:width .4s ease"></div>
-        </div>`;
-      document.body.appendChild(ov);
-      try {
-        const bar=document.getElementById('sync-login-bar');
-        if(bar) bar.style.width='40%';
-        await FBSync.pullAll();
-        if(bar) bar.style.width='100%';
-        await new Promise(r=>setTimeout(r,300));
-      } catch(e){ console.warn('[Login] pullAll error:',e); }
-      ov.remove();
-    }
+    // ── AUDIT v3: OFFLINE-FIRST — JANGAN block login dengan pullAll ──
+    // Sebelumnya: _enter() menampilkan overlay "Menyinkronkan data..." dan
+    // await pullAll() — ini bikin user nunggu 5-15 detik sebelum bisa interaksi.
+    // Sekarang: render UI dari IndexedDB (instant), lalu sync cloud di background.
+    // User bisa langsung lihat dashboard, meski datanya mungkin sedikit stale
+    // untuk beberapa detik pertama. Setelah sync selesai, dashboard auto-refresh.
     S.stack=[];await this.nav('dash');
+    // Start listeners (realtime untuk absensi & sesi) di background
+    if (navigator.onLine) {
+      // Pull semua store di background — TANPA overlay blocking
+      // pakai cache 5 menit supaya kalau user baru logout-login cepat, tidak re-fetch
+      FBSync.pullAll().then(() => {
+        // Setelah sync cloud selesai, re-render halaman aktif supaya
+        // data terbaru tampil (hanya jika user masih di halaman tsb)
+        if (S.page === 'dash') {
+          try { App.dash(); } catch(e) {}
+        }
+      }).catch(e => {
+        console.warn('[Login] background pullAll error:', e.message);
+      });
+    }
   },
   userMenu(){
     const avHtml=S.user?.foto
@@ -11146,11 +11214,11 @@ const FBSync = (() => {
   async function pull(stores) {
     if (!navigator.onLine) return;
     _dot('syncing');
-    // BUG FIX: pull() sebelumnya hanya menulis ke IndexedDB tanpa pernah
+    // AUDIT v3: pull() sebelumnya hanya menulis ke IndexedDB tanpa pernah
     // memberi tahu UI untuk re-render. Ini membuat data yang ditarik oleh
-    // polling latar belakang (_bgPullTimer tiap 30dtk) tidak pernah terlihat
-    // sampai user pindah halaman lalu kembali. `changed` melacak apakah ada
-    // penambahan/pembaruan/penghapusan nyata selama pull ini berlangsung.
+    // polling latar belakang tidak pernah terlihat sampai user pindah halaman
+    // lalu kembali. `changed` melacak apakah ada penambahan/pembaruan/penghapusan
+    // nyata selama pull ini berlangsung.
     let changed = false;
     try {
       const results = await Promise.all(stores.map(s => _fbFetch('/' + s).catch(()=>null)));
@@ -11445,18 +11513,87 @@ const FBSync = (() => {
       _renderTimer = null;
       const pg = S.page;
       const fn = _RENDER_MAP[pg];
-      if (fn) { try { fn(); } catch(e) { console.warn('[FB Listener] re-render error:', e); } }
+      if (fn) {
+        // ── AUDIT v3: PRESERVE SCROLL POSITION & FOCUS ──
+        // Sebelumnya, re-render via innerHTML me-reset scrollTop ke 0 dan
+        // hilangkan focus dari input aktif. Ini penyebab user complaint:
+        // "scroll ke atas sedikit tiba2 langsung loncat ke halaman paling atas".
+        // Sekarang: simpan scrollTop semua scrollable container + activeElement
+        // + selection range, lalu restore setelah re-render.
+        const _scrollStates = [];
+        document.querySelectorAll('*').forEach(el => {
+          if (el.scrollTop > 0 || el.scrollLeft > 0) {
+            // Hanya simpan elemen dengan scroll non-zero ( hemat memory)
+            _scrollStates.push({
+              el: el,
+              top: el.scrollTop,
+              left: el.scrollLeft
+            });
+          }
+        });
+        // Simpan active element + selection
+        const _activeEl = document.activeElement;
+        const _selStart = _activeEl?.selectionStart;
+        const _selEnd = _activeEl?.selectionEnd;
+        const _activeId = _activeEl?.id || _activeEl?.dataset?.id || null;
+        const _activeTag = _activeEl?.tagName?.toLowerCase() || null;
+        try {
+          fn();
+        } catch(e) { console.warn('[FB Listener] re-render error:', e); }
+        // Restore scroll positions
+        // Pakai requestAnimationFrame supaya DOM sudah selesai di-rebuild
+        requestAnimationFrame(() => {
+          _scrollStates.forEach(s => {
+            if (s.el && s.el.isConnected) {
+              try {
+                s.el.scrollTop = s.top;
+                s.el.scrollLeft = s.left;
+              } catch(e) {}
+            }
+          });
+          // Restore focus + selection
+          if (_activeId && _activeTag) {
+            const newActive = document.getElementById(_activeId) ||
+              document.querySelector(`[data-id="${_activeId}"]`);
+            if (newActive && newActive.tagName?.toLowerCase() === _activeTag) {
+              try {
+                newActive.focus();
+                if (_selStart !== undefined && _selEnd !== undefined &&
+                    typeof newActive.setSelectionRange === 'function') {
+                  newActive.setSelectionRange(_selStart, _selEnd);
+                }
+              } catch(e) {}
+            }
+          }
+        });
+      }
     }, 600);
   }
 
   // Proses satu perubahan dokumen dari Firestore
+  // ── AUDIT v3: Re-render hanya jika store RELEVAN dengan halaman aktif ──
+  // Sebelumnya: setiap perubahan Firestore memicu _scheduleReRender tanpa cek
+  // apakah store tsb ditampilkan di halaman aktif. Akibatnya: user di halaman
+  // Santri tetap di-re-render saat ada perubahan absensi di device lain.
+  // Sekarang: mapping store → halaman yang menampilkan store tsb.
+  const _STORE_TO_PAGES = {
+    absensi: ['dash','abs','kgd','rek','profil'],
+    sesi:    ['dash','kg','kgd','sub','abs','rek'],
+  };
+  function _isStoreRelevantToCurrentPage(store) {
+    const pages = _STORE_TO_PAGES[store];
+    if (!pages) return true; // unknown store → conservative: re-render
+    return pages.includes(S.page);
+  }
+
   async function _handleDocChange(store, doc) {
     if (!doc.exists) {
       // Doc hard-deleted dari FB (jarang terjadi dengan strategi tombstone,
       // tapi tangani sebagai jaring pengaman)
       try { await (_origD ? _origD(store, doc.id) : DB.d(store, doc.id)); }
       catch(e) {}
-      _scheduleReRender();
+      // Hanya re-render jika store relevan dengan halaman aktif
+      if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
       return;
     }
     const data = doc.data();
@@ -11473,7 +11610,7 @@ const FBSync = (() => {
           // Ambil nama untuk toast informatif (jika ada)
           const displayName = loc.nama || loc.id;
           await (_origD ? _origD(store, data.id) : DB.d(store, data.id));
-          _scheduleReRender();
+          if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
           console.log('[FB Listener] tombstone applied:', store, data.id);
           // ── IMPROVED: Toast visible untuk store user-facing ──
           // Beritahu user bahwa item ini dihapus di device lain, supaya
@@ -11500,62 +11637,47 @@ const FBSync = (() => {
         if (!loc) {
           // Item baru dari FB — simpan lokal
           await (_origP ? _origP(store, fbObj) : DB.p(store, fbObj));
-          _scheduleReRender();
+          if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
         } else if (fbTs > locTs) {
           // FB lebih baru — update lokal
           await (_origP ? _origP(store, fbObj) : DB.p(store, fbObj));
-          _scheduleReRender();
+          if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
         }
         // locTs >= fbTs → lokal sama/lebih baru → biarkan, write queue akan push ke FB
       } catch(e) { console.warn('[FB Listener] live item error:', store, data.id, e); }
     }
   }
 
-  // ── FASE 2 AUDIT FIX: Pisahkan store realtime vs non-realtime ──
-  // Sebelumnya: 17 store semua dipasang onSnapshot (boros Reads).
-  // Sekarang: hanya 10 store yang SANGAT perlu realtime yang pakai onSnapshot.
-  // Sisanya (auditLog, kamar, peraturan, kalam, anggota, users, settings[non-realtime])
-  // di-poll via getDocs() tiap 10 menit — jauh lebih murah.
-  // Catatan kompatibilitas: perubahan di 7 store non-realtime akan muncul di device
-  // lain dalam max 10 menit (bukan instan). Trade-off yang dapat diterima karena:
-  //   - auditLog: log masa lalu, jarang dibaca realtime
-  //   - kamar/peraturan: setup awal, jarang diubah setelahnya
-  //   - kalam: kata hikmah harian, tidak berubah detik-detik
-  //   - anggota: anggota kamar, jarang berubah
-  //   - users: daftar musyrifah, jarang berubah
-  //   - settings[non-tema]: konfigurasi, jarang berubah
-  // Untuk settings, onSnapshot tetap dipertahankan karena tema/jenis_kelamin sering
-  // dibaca UI dan perubahan harus instan. Jadi settings tetap di REALTIME_STORES.
-  // NOTE: settings tidak masuk POLL_STORES untuk hindari double-source-of-truth.
-  const _REALTIME_STORES = ['santri','kegiatan','subKeg','sesi','absensi','catatanSantri','pelanggaran','settings','perizinan','uzur','catatanSakit'];
-  const _POLL_STORES = ['anggota','auditLog','users','kamar','peraturan','kalam'];
-  // Backward-compat alias: kode existing pakai _LISTENER_STORES
+  // ── AUDIT v3: OFFLINE-FIRST — Realtime HANYA untuk absensi & sesi ──
+  // Sebelumnya: 10 store realtime + 6 store polling = 16 sumber trigger re-render.
+  // Itu penyebab app lemot: setiap perubahan kecil di Firestore (bahkan di store
+  // yang tidak sedang dilihat user) memicu _scheduleReRender yang rebuild DOM.
+  // Sekarang: HANYA absensi & sesi yang realtime (memang perlu cross-device sync
+  // saat sedang aktif absensi). Semua store lain: load once saat dibutuhkan,
+  // cache 5 menit, tidak ada background polling.
+  // User feedback: "Aplikasi harus offline first, jangan semua2 online"
+  const _REALTIME_STORES = ['absensi', 'sesi'];
+  // Backward-compat alias
   const _LISTENER_STORES = _REALTIME_STORES;
-  let _pollTimer = null;
+  // Store yang di-load on-demand (saat nav ke halaman tsb), bukan realtime
+  // dan bukan polling. Cache 5 menit supaya nav back-forth tidak re-fetch.
+  const _ON_DEMAND_STORES = ['santri','kegiatan','subKeg','anggota','kamar','users','peraturan','kalam','settings','auditLog','catatanSantri','pelanggaran','perizinan','uzur','catatanSakit'];
+  // Cache: { storeName: timestampLastPullMs }
+  const _pullCache = {};
+  const _PULL_CACHE_TTL = 5 * 60 * 1000; // 5 menit
 
-  // ── Polling untuk store non-realtime ──
-  // Tiap 10 menit, fetch ulang 6 store via getDocs (bukan onSnapshot).
-  // Hanya update jika ada perubahan (changed flag), lalu _scheduleReRender.
-  async function _pollNonRealtimeStores() {
-    if (!navigator.onLine || document.hidden) return;
-    try {
-      // Pull pakai mekanisme yang sama dengan pull() — sudah handle tombstone,
-      // 3-way merge, dan hanya update jika FB lebih baru.
-      await pull(_POLL_STORES).catch(()=>{});
-    } catch(e) {
-      console.warn('[FBSync] poll non-realtime error:', e.message);
-    }
+  // Cek apakah store perlu di-pull lagi (lebih dari TTL sejak pull terakhir)
+  function _needsPull(store) {
+    const last = _pullCache[store] || 0;
+    return (Date.now() - last) > _PULL_CACHE_TTL;
   }
-
-  function _startPolling() {
-    if (_pollTimer) clearInterval(_pollTimer);
-    _pollTimer = setInterval(_pollNonRealtimeStores, 10 * 60 * 1000); // 10 menit
-    // Poll pertama setelah 30 detik (jangan bersamaan dengan pullAll saat login)
-    setTimeout(_pollNonRealtimeStores, 30000);
+  function _markPulled(store) {
+    _pullCache[store] = Date.now();
   }
-
-  function _stopPolling() {
-    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  // Force refresh — bypass cache (dipanggil dari tombol Refresh di header)
+  function _invalidateCache(store) {
+    if (store) delete _pullCache[store];
+    else Object.keys(_pullCache).forEach(k => delete _pullCache[k]);
   }
 
   // ── BUG FIX: listener resilience ────────────────────────────────────
@@ -11611,18 +11733,15 @@ const FBSync = (() => {
     if (!navigator.onLine) return;
     _listenerGen++;
     const myGen = _listenerGen;
-    // ── FASE 2: Hanya attach onSnapshot untuk _REALTIME_STORES (10 store) ──
-    // Store non-realtime (auditLog, kamar, peraturan, kalam, anggota, users)
-    // di-handle oleh _startPolling() di bawah, jauh lebih hemat Reads.
+    // ── AUDIT v3: Realtime HANYA untuk absensi & sesi ──
+    // 2 listener saja. Semua store lain di-load on-demand via pullForNav
+    // dengan cache 5 menit. Ini drastis mengurangi:
+    //   - Reads (dari ~4,250/boot jadi ~600/boot untuk 2 store)
+    //   - Re-render triggers (hanya perubahan absensi/sesi yang re-render)
+    //   - WebSocket connections (dari 17 jadi 2)
     _REALTIME_STORES.forEach(store => _attachListener(store, myGen, 5000));
-    console.log('[FB Listeners] Started for', _REALTIME_STORES.length, 'realtime stores (gen', myGen+') +', _POLL_STORES.length, 'polled stores');
-    // ── FASE 2: Mulai polling untuk store non-realtime ──
-    _startPolling();
+    console.log('[FB Listeners] Started for', _REALTIME_STORES.length, 'realtime stores (gen', myGen+') — other stores via on-demand pull');
     // ── AUDIT FIX: Health-check proaktif tiap 2 menit ──
-    // _sweepTombstones sudah ada tiap 5 menit, tapi tidak menutup kemungkinan
-    // listener mati diam-diam tanpa callback error. Health check di sini
-    // lebih sering & ringan: hanya cek jumlah _unsubs, jika kurang dari
-    // jumlah store → restart. Tidak ada query FB tambahan, jadi nol Reads.
     if (_healthTimer) clearInterval(_healthTimer);
     _healthTimer = setInterval(() => {
       if (myGen !== _listenerGen) {
@@ -11632,8 +11751,6 @@ const FBSync = (() => {
       if (!navigator.onLine) return;
       if (_unsubs.length < _REALTIME_STORES.length) {
         console.warn('[FB Listeners] Health check: hanya', _unsubs.length, '/', _REALTIME_STORES.length, 'aktif — restart');
-        // Re-start: increment gen dulu supaya listener zombie berhenti,
-        // lalu attach ulang semua.
         _listenerGen++;
         const newGen = _listenerGen;
         _REALTIME_STORES.forEach(store => _attachListener(store, newGen, 5000));
@@ -11646,8 +11763,6 @@ const FBSync = (() => {
   function stopListeners() {
     _listenerGen++; // basikan semua timer reconnect yang mungkin masih terjadwal
     if (_healthTimer) { clearInterval(_healthTimer); _healthTimer = null; }
-    // ── FASE 2: Stop polling juga ──
-    _stopPolling();
     if (_unsubs.length) {
       _unsubs.forEach(u => { try { u(); } catch(e){} });
       _unsubs = [];
@@ -11675,8 +11790,30 @@ const FBSync = (() => {
   };
 
   async function pullForNav(pg) {
-    const stores = NAV_PULL[pg] || [];
-    if (stores.length) await pull(stores);
+    // ── AUDIT v3: Pull on-demand dengan cache 5 menit ──
+    // Sebelumnya: setiap navigasi antar tab memicu pull store terkait,
+    // tanpa cache. User bolak-balik tab = pull berulang = borak Reads & lemot.
+    // Sekarang: cek cache dulu, hanya pull jika sudah > 5 menit sejak pull terakhir.
+    // Store absensi & sesi TIDAK perlu di-pull di sini karena sudah realtime.
+    const stores = (NAV_PULL[pg] || []).filter(s => !_REALTIME_STORES.includes(s));
+    const toPull = stores.filter(s => _needsPull(s));
+    if (toPull.length) {
+      // Tandai sebagai "sedang di-pull" supaya nav berikutnya tidak double-pull
+      toPull.forEach(s => _markPulled(s));
+      // Pull NON-BLOCKING — return immediately, pull berjalan di background.
+      // Data dari IDB (yang mungkin stale) sudah dipakai render oleh _origNav.
+      // Setelah pull selesai, re-render halaman aktif kalau user masih di sana.
+      pull(toPull).then(() => {
+        if (S.page === pg) {
+          // Re-render untuk update UI dengan data terbaru dari cloud
+          _scheduleReRender();
+        }
+      }).catch(e => {
+        console.warn('[pullForNav] error:', e.message);
+        // Reset cache supaya bisa retry di nav berikutnya
+        toPull.forEach(s => { _pullCache[s] = 0; });
+      });
+    }
   }
 
   function setOrigP(fn) { _origP = fn; }
@@ -11753,7 +11890,7 @@ const FBSync = (() => {
     });
   }
 
-  return { write, pull, pullAll, pullForNav, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, _handleDocChange, _sweepTombstones, _startPolling, _stopPolling, _pollNonRealtimeStores };
+  return { write, pull, pullAll, pullForNav, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache };
 })();
 
 // ════════════════════════════════════════════════════════════
@@ -11794,23 +11931,12 @@ const FBSync = (() => {
     }
     // Pull data halaman tujuan secara NON-BLOCKING (paralel dengan render)
     // agar tidak ada delay saat ganti tab bottom nav.
-    // (skip untuk halaman yang tidak punya data kritis)
+    // AUDIT v3: pullForNav sekarang punya cache 5 menit + handle re-render
+    // sendiri setelah pull selesai. Tidak perlu double re-render di sini.
     const _fastPages = ['chat'];
     if (navigator.onLine && !_fastPages.includes(pg)) {
-      FBSync.pullForNav(pg).catch(()=>{}).then(()=>{
-        // Setelah pull selesai, re-render halaman aktif kalau user masih di halaman tsb
-        if (S.page === pg) {
-          try {
-            if (pg === 'dash') App.dash();
-            else if (pg === 'kg') App.renderKg();
-            else if (pg === 'snt') App.renderSnt();
-            else if (pg === 'rek') App.renderRek();
-            else if (pg === 'pel') App.renderPel();
-            else if (pg === 'izn') App.renderIzn();
-            else if (pg === 'set') App.renderSet();
-          } catch(e) {}
-        }
-      });
+      // Fire-and-forget — pullForNav handle sendiri re-render setelah selesai
+      FBSync.pullForNav(pg).catch(()=>{});
     }
     await _origNav(pg, opts);
     // Start absensi poll jika masuk halaman abs
@@ -11884,10 +12010,13 @@ const FBSync = (() => {
 })();
 
 // ════════════════════════════════════════════════════════════
-// BACKGROUND REFRESH — flush writes tiap 10 detik + periodic pull
+// BACKGROUND REFRESH — flush writes + tombstone sweep
+// AUDIT v3: Hapus periodic pull 30 detik (boros Reads).
+// Sekarang: hanya flush write queue tiap 10 detik + tombstone sweep 5 menit.
+// Pull cloud dilakukan on-demand saat user navigasi (dengan cache 5 menit)
+// atau saat user klik tombol Refresh di header.
 // ════════════════════════════════════════════════════════════
 let _bgTimer = null;
-let _bgPullTimer = null;
 function _startBgRefresh() {
   if (_bgTimer) clearInterval(_bgTimer);
   _bgTimer = setInterval(() => {
@@ -11895,16 +12024,7 @@ function _startBgRefresh() {
     FBSync._flushWrites();
     _chatBgCheck();
   }, 10000);
-  // Periodic pull tiap 30 detik sebagai fallback — memastikan
-  // perubahan yang mungkin terlewat oleh onSnapshot listener
-  // (mis. karena network glitch) tetap tersampaikan.
-  if (_bgPullTimer) clearInterval(_bgPullTimer);
-  _bgPullTimer = setInterval(() => {
-    if (!navigator.onLine || document.hidden) return;
-    // Pull store kritis yang paling sering berubah
-    FBSync.pull(['kegiatan','subKeg','sesi','absensi']).catch(()=>{});
-  }, 30000);
-  // ── IMPROVED: Tombstone sweep tiap 5 menit ──
+  // ── Tombstone sweep tiap 5 menit ──
   // Bersihkan tombstone lokal yang tertinggal + cek FB untuk tombstone
   // yang mungkin terlewat oleh listener. Defensive terhadap bug
   // "hapus di device A tidak terhapus di device B".
@@ -11914,7 +12034,10 @@ function _startBgRefresh() {
     if (FBSync._sweepTombstones) FBSync._sweepTombstones().catch(()=>{});
   }, 300000); // 5 menit
 }
-// Saat tab/app kembali aktif: flush writes + restart listeners + pull fresh data
+// Saat tab/app kembali aktif: flush writes + restart listeners
+// AUDIT v3: Jangan pullAll saat visibilitychange (boros Reads).
+// Cukup restart listeners (realtime untuk absensi & sesi) + flush write queue.
+// Pull cloud hanya dilakukan on-demand saat user navigasi atau klik Refresh.
 document.addEventListener('visibilitychange', async () => {
   if (!document.hidden && navigator.onLine) {
     FBSync._flushWrites();
@@ -11928,8 +12051,8 @@ document.addEventListener('visibilitychange', async () => {
       if (S.page === 'dash') App.dash().catch(()=>{});
       else if (S.page === 'kg') App.renderKg().catch(()=>{});
     }
-    // Pull data terbaru sesuai halaman aktif
-    if (S.page) FBSync.pullForNav(S.page).catch(()=>{});
+    // Invalidate cache supaya nav berikutnya re-pull fresh data
+    if (FBSync._invalidateCache) FBSync._invalidateCache();
   }
 });
 window.addEventListener('online',  () => {
@@ -11937,9 +12060,10 @@ window.addEventListener('online',  () => {
   FBSync._flushWrites();
   // Restart listeners setelah online kembali
   setTimeout(()=>FBSync.startListeners(), 500);
-  // Pull SEMUA store (bukan hanya 5) — memastikan tidak ada perubahan
-  // yang terlewat saat offline, termasuk tombstone/hapus kegiatan.
-  setTimeout(()=>FBSync.pullAll(), 1500);
+  // AUDIT v3: Jangan pullAll (boros Reads). Cukup invalidate cache,
+  // pull halaman aktif saja. User bisa klik Refresh kalau mau full sync.
+  if (FBSync._invalidateCache) FBSync._invalidateCache();
+  if (S.page) setTimeout(()=>FBSync.pullForNav(S.page).catch(()=>{}), 1500);
 });
 window.addEventListener('offline', () => { FBSync._dot('off'); FBSync.stopListeners(); });
 
