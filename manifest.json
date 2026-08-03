@@ -1,14 +1,17 @@
 {
+  "id": "/",
   "name": "Absensi Santri",
   "short_name": "Absensi",
   "description": "Aplikasi Absensi Santri dengan NFC Background Listener",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "portrait",
   "background_color": "#f4f7f0",
   "theme_color": "#0db57f",
   "lang": "id",
+  "dir": "ltr",
   "categories": ["education", "productivity"],
   "icons": [
     {
@@ -40,7 +43,22 @@
     {
       "name": "Dashboard",
       "short_name": "Beranda",
+      "description": "Lihat ringkasan absensi hari ini",
       "url": "./",
+      "icons": [{"src": "icon-192.png", "sizes": "192x192"}]
+    },
+    {
+      "name": "Kegiatan",
+      "short_name": "Kegiatan",
+      "description": "Daftar kegiatan & sesi absensi",
+      "url": "./#kg",
+      "icons": [{"src": "icon-192.png", "sizes": "192x192"}]
+    },
+    {
+      "name": "Santri",
+      "short_name": "Santri",
+      "description": "Daftar santri & kamar",
+      "url": "./#snt",
       "icons": [{"src": "icon-192.png", "sizes": "192x192"}]
     }
   ]

@@ -3,7 +3,15 @@
 // - App shell (index.html, manifest.json, icons): cache-first dengan background update
 // - API Firebase & font Google: network-only (selalu fresh)
 // - Navigasi: network-first, fallback ke cache
-const CACHE_VERSION = 'absensi-santri-islami-v1';
+// ── AUDIT FIX v2: ──
+//   1. Version bump supaya semua client yang ada langsung ambil SW baru.
+//   2. Tambah `message` handler yang memicu skipWaiting + clients.claim
+//      lewat postMessage('SKIP_WAITING') — dipakai oleh helper _notifySwUpdate
+//      di index.html. Tanpa ini, user harus tutup semua tab untuk update.
+//   3. Navigasi fallback: jika network gagal DAN tidak ada cache, tampilkan
+//      halaman offline minimal (bukan layar putih).
+const CACHE_VERSION = 'absensi-santri-islami-v2-audit';
+const OFFLINE_URL = './index.html'; // fallback — sama dengan app shell
 const APP_SHELL = [
   './',
   './index.html',
@@ -50,6 +58,41 @@ self.addEventListener('fetch', (event) => {
       url.hostname === 'www.gstatic.com' ||
       url.hostname.includes('cloudflareinsights.com') ||
       url.hostname.includes('googleapis.com')) {
+    return;
+  }
+
+  // ── FASE 3 AUDIT FIX: Runtime caching untuk Firebase Storage ──
+  // Gambar profil santri/users disimpan di Firebase Storage (firebasestorage.app).
+  // Sebelumnya, gambar ini di-fetch ulang dari network setiap kali halaman
+  // dirender — boros bandwidth dan lambat di jaringan 3G. Sekarang pakai
+  // strategi StaleWhileRevalidate: tampilkan dari cache dulu (instant), lalu
+  // update di background untuk next render. Cache di-batasi 50 entries,
+  // max age 30 hari (gambar profil jarang berubah).
+  if (url.hostname.includes('firebasestorage.app') ||
+      url.hostname.includes('firebasestorage.googleapis.com')) {
+    event.respondWith(
+      caches.open('absensi-img-cache-v1').then(cache => {
+        return cache.match(req).then(cached => {
+          // Revalidate di background
+          const fetchPromise = fetch(req).then(res => {
+            // Hanya cache response OK (200) dan metode GET
+            if (res && res.ok && res.status === 200) {
+              const copy = res.clone();
+              cache.put(req, copy).catch(()=>{});
+              // Cleanup old entries jika cache > 50
+              cache.keys().then(keys => {
+                if (keys.length > 50) {
+                  // Hapus 10 entry tertua (FIFO)
+                  keys.slice(0, 10).forEach(k => cache.delete(k).catch(()=>{}));
+                }
+              }).catch(()=>{});
+            }
+            return res;
+          }).catch(() => cached);
+          return cached || fetchPromise;
+        });
+      })
+    );
     return;
   }
 

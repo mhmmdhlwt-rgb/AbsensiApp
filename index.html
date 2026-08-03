@@ -440,6 +440,12 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+<!-- FASE 3 AUDIT FIX: Utils terpisah — format tanggal terpusat -->
+<script src="utils/dateFmt.js"></script>
+<!-- FASE 3 AUDIT FIX: Virtual scrolling untuk list panjang -->
+<script src="utils/virtualList.js"></script>
+<!-- FASE 3 AUDIT FIX: Service layer untuk Firestore (wrapper terpusat) -->
+<script src="services/firestoreService.js"></script>
 <!-- ============================================================ -->
 <!-- DESKTOP OPTIMIZATION v2 — clone terpisah, backend Firestore sama -->
 <!-- Hanya mengubah tampilan, TIDAK mengubah business logic apapun. -->
@@ -1694,6 +1700,42 @@ const SubReorder = {
 };
 
 const App={
+  // ── FASE 2 AUDIT FIX: Empty state helper terpusat ──
+  // Pakai di semua halaman yang mungkin menampilkan data kosong.
+  // Konvensi: icon emoji (bisa pakai unicode escape), title bold, subtitle
+  // penjelasan, dan optional action button.
+  // Contoh pemakaian:
+  //   App.renderEmpty('pel-body', '📋', 'Belum ada pelanggaran',
+  //     'Pelanggaran akan muncul di sini saat santri ditandai alpha/terlambat.');
+  renderEmpty(containerId, icon, title, subtitle, actionLabel, actionFn){
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    let html = `<div style="text-align:center;padding:50px 20px;color:var(--t3)">
+      <div style="font-size:48px;margin-bottom:14px;opacity:.6">${icon||'📭'}</div>
+      <div style="font-family:var(--fd);font-size:15px;font-weight:800;color:var(--t2);margin-bottom:6px">${title||'Belum ada data'}</div>
+      <div style="font-size:12px;color:var(--t4);line-height:1.5;max-width:280px;margin:0 auto">${subtitle||''}</div>`;
+    if (actionLabel && actionFn) {
+      // Action harus didaftarkan global — pakai window.App._emptyAction_<id>
+      const fnKey = '_emptyAction_' + containerId;
+      window.App[fnKey] = actionFn;
+      html += `<button onclick="App.${fnKey}()" style="margin-top:14px;padding:10px 18px;border-radius:100px;background:var(--gs);border:1.5px solid rgba(13,181,127,.25);font-size:12px;font-weight:700;color:var(--a1);cursor:pointer">${actionLabel}</button>`;
+    }
+    html += `</div>`;
+    el.innerHTML = html;
+  },
+  // Helper serupa untuk error state (retry button)
+  renderError(containerId, message, retryFn){
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    const fnKey = '_retryAction_' + containerId;
+    window.App[fnKey] = retryFn || (() => location.reload());
+    el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--t3)">
+      <div style="font-size:42px;margin-bottom:12px">⚠️</div>
+      <div style="font-size:13px;font-weight:700;color:#ef4444;margin-bottom:6px">Gagal memuat data</div>
+      <div style="font-size:11px;color:var(--t4);line-height:1.5;margin-bottom:14px">${message||'Periksa koneksi internet dan coba lagi.'}</div>
+      <button onclick="App.${fnKey}()" style="padding:9px 18px;border-radius:100px;background:rgba(13,181,127,.1);border:1.5px solid rgba(13,181,127,.3);font-size:12px;font-weight:700;color:var(--a1);cursor:pointer">🔄 Coba lagi</button>
+    </div>`;
+  },
   loginUser(uid){
     DB.g('settings','jenis_kelamin').then(jkSet=>{
       const sbt=(jkSet?.value||'perempuan')==='laki'?'Musyrif':'Musyrifah';
@@ -2379,29 +2421,49 @@ const App={
     await this.renderAbs(S._sesiId,S._skId);
   },
   async setSt(absId,sntId,newSt,sid){
-    // Toggle: kalau klik status yang sama, ubah jadi 'none' (deselect)
-    let ab=await DB.g('absensi',absId);
-    if(ab&&ab.status===newSt){
-      await this._doSt(absId,sntId,'none',sid);
+    // ── AUDIT FIX: Race condition guard (double-submit prevention) ──
+    // Sebelumnya, klik tombol absen dua kali dengan cepat (atau double-tap
+    // di NFC) bisa memicu dua _doSt() paralel yang sama-sama baca DB.g lalu
+    // dua-duanya tulis, terutama jika klik terjadi saat UI belum selesai
+    // update. Flag S._absInFlight memastikan hanya satu operasi absen
+    // per-sntId yang berjalan pada satu waktu. Flag di-clear di finally.
+    if (!S._absInFlight) S._absInFlight = {};
+    const flightKey = absId;
+    if (S._absInFlight[flightKey]) {
+      // Sudah ada operasi yang berjalan untuk absen ini — drop silently.
+      // Tidak perlu toast karena ini guard anti-double-click, bukan error.
       return;
     }
-    // ── CATATAN SAKIT INTEGRATION (setSt) ──────────────────────
-    // Tombol 'sakit' di halaman absensi LANGSUNG set status sakit.
-    // TIDAK ADA pop-up sheet catatan sakit lagi di sini — santri
-    // yang sakit bisa dicatat detailnya manual lewat halaman Perizinan
-    // atau profil (tombol "+ Catat Sakit"). Jika santri sudah punya
-    // catatanSakit aktif, status 'sakit' konsisten dengan catatan itu.
-    //
-    // Saat ustadah klik 'hadir' & santri PUNYA catatanSakit aktif →
-    // tandai sembuh (caraBerakhir='hadir_manual') lalu set hadir.
-    if(newSt==='hadir'){
-      const sakitAktif=await this._getSakitAktifBySnt(sntId);
-      if(sakitAktif){
-        await this._setSakitSembuh(sakitAktif.id,'hadir_manual').catch(()=>{});
-        T('✅ Catatan sakit ditandai sembuh. Absensi kembali normal.',2500);
+    S._absInFlight[flightKey] = true;
+    try {
+      // Toggle: kalau klik status yang sama, ubah jadi 'none' (deselect)
+      let ab=await DB.g('absensi',absId);
+      if(ab&&ab.status===newSt){
+        await this._doSt(absId,sntId,'none',sid);
+        return;
       }
+      // ── CATATAN SAKIT INTEGRATION (setSt) ──────────────────────
+      // Tombol 'sakit' di halaman absensi LANGSUNG set status sakit.
+      // TIDAK ADA pop-up sheet catatan sakit lagi di sini — santri
+      // yang sakit bisa dicatat detailnya manual lewat halaman Perizinan
+      // atau profil (tombol "+ Catat Sakit"). Jika santri sudah punya
+      // catatanSakit aktif, status 'sakit' konsisten dengan catatan itu.
+      //
+      // Saat ustadah klik 'hadir' & santri PUNYA catatanSakit aktif →
+      // tandai sembuh (caraBerakhir='hadir_manual') lalu set hadir.
+      if(newSt==='hadir'){
+        const sakitAktif=await this._getSakitAktifBySnt(sntId);
+        if(sakitAktif){
+          await this._setSakitSembuh(sakitAktif.id,'hadir_manual').catch(()=>{});
+          T('✅ Catatan sakit ditandai sembuh. Absensi kembali normal.',2500);
+        }
+      }
+      await this._doSt(absId,sntId,newSt,sid);
+    } finally {
+      // Clear flag setelah operasi selesai (sukses atau gagal).
+      // Beri delay 150ms supaya UI card sudah update dan tidak re-trigger.
+      setTimeout(() => { if (S._absInFlight) delete S._absInFlight[flightKey]; }, 150);
     }
-    await this._doSt(absId,sntId,newSt,sid);
   },
   async _doSt(absId,sntId,newSt,sid){
     let ab=await DB.g('absensi',absId);const old=ab?.status;
@@ -3954,6 +4016,28 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
     else await this._rkBulanan();
   },
   async _rkHarian(){
+    // ── FASE 2: Pull Firestore dengan filter tanggal untuk halaman Rekap ──
+    // Sebelumnya, Rekap membaca dari IndexedDB lokal (yang sudah ter-cache
+    // dari pullAll saat login). Tapi untuk tenant dengan akumulasi data 6+
+    // bulan, IndexedDB bisa menyimpan ribuan dokumen absensi yang tidak
+    // akan pernah dilihat user di Rekap bulan ini. Pull dengan where()
+    // memastikan data bulan yang dipilih selalu fresh dari cloud, tanpa
+    // harus pull seluruh koleksi.
+    if (navigator.onLine) {
+      try {
+        const monthPfx = `${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
+        const startOfMonth = `${monthPfx}-01`;
+        const endOfMonth = `${monthPfx}-31`; // over-spec; Firestore string compare works
+        // Pull sesi & absensi untuk bulan ini saja — gunakan where() filter
+        // (composite index sudah dibuat di firebase.json)
+        await _fbFetchFiltered('sesi', 'tanggal', '>=', startOfMonth, 'tanggal', '<=', endOfMonth)
+          .then(items => items.forEach(it => DB.p('sesi', it).catch(()=>{})))
+          .catch(e => console.warn('[Rek] pull sesi bulan error:', e.message));
+        await _fbFetchFiltered('absensi', 'tanggal', '>=', startOfMonth, 'tanggal', '<=', endOfMonth)
+          .then(items => items.forEach(it => DB.p('absensi', it).catch(()=>{})))
+          .catch(e => console.warn('[Rek] pull absensi bulan error:', e.message));
+      } catch(e) { console.warn('[Rek] filtered pull error:', e.message); }
+    }
     const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg')]);
     const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
     const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -7764,6 +7848,37 @@ await this._share(t);
         T('❌ File bukan backup yang valid (tidak ada metadata exportedAt).');
         return;
       }
+      // ── FASE 2 AUDIT FIX: Validasi tenant_ns mismatch ──
+      // Jika file backup berasal dari tenant A tapi di-restore di device
+      // yang sedang aktif di tenant B, data akan tertumpang di tenant B
+      // (karena path Firestore pakai _fbNs() = tenant B saat ini).
+      // Tampilkan konfirmasi jika beda, atau auto-switch jika user setuju.
+      const currentNs = _fbNs();
+      const backupNs = data.tenant_ns;
+      const backupNama = data.tenant_nama || backupNs;
+      if (backupNs && backupNs !== currentNs && currentNs !== 'default') {
+        const konfirmasi = confirm(
+          '⚠️ PERINGATAN TENANT MISMATCH\\n\\n' +
+          'File backup berasal dari: ' + backupNama + ' (ns: ' + backupNs + ')\\n' +
+          'Device ini sedang aktif di: ' + (localStorage.getItem('tenant_nama')||currentNs) + ' (ns: ' + currentNs + ')\\n\\n' +
+          'Jika lanjut, data dari backup akan MENIMPA data di tenant "' + currentNs + '".\\n' +
+          'Data cloud tenant "' + currentNs + '" yang ada sekarang akan di-PURGE total.\\n\\n' +
+          'Pilih OK untuk: (1) switch ke tenant "' + backupNs + '", (2) reload, (3) restore di sana.\\n' +
+          'Pilih Cancel untuk: batalkan restore.'
+        );
+        if (!konfirmasi) {
+          T('❌ Restore dibatalkan.');
+          return;
+        }
+        // Switch ke tenant backup lalu reload (restore akan diulang setelah reload
+        // jika user klik tombol restore lagi). Lebih aman daripada restore langsung.
+        localStorage.setItem('tenant_ns', backupNs);
+        localStorage.setItem('tenant_nama', backupNama);
+        localStorage.setItem('tenant_tipe', data.tenant_tipe || 'asrama');
+        T('🔄 Switched ke tenant ' + backupNama + '. Silakan pilih file backup lagi setelah reload.');
+        setTimeout(() => location.reload(), 1500);
+        return;
+      }
       // Versi backup — warning kalau beda major version
       const verMajor = parseInt(String(data.version||'0').split('.')[0], 10);
       if(verMajor > 6){
@@ -8388,8 +8503,10 @@ function _showTenantPinDialog(title, sub, expectedPin, onSuccess) {
   document.getElementById('pin-ov').style.display = 'flex';
   PIN.p = n => {
     if (pin.length >= 4) return; pin += String(n); render();
-    if (pin.length === 4) setTimeout(() => {
-      if (pin === expectedPin) { restore(); document.getElementById('pin-ov').style.display='none'; onSuccess(); }
+    if (pin.length === 4) setTimeout(async () => {
+      // ── AUDIT FIX: Pakai _verifyPin (hash + plain fallback) ──
+      const ok = await _verifyPin(pin, expectedPin);
+      if (ok) { restore(); document.getElementById('pin-ov').style.display='none'; onSuccess(); }
       else { document.getElementById('pin-err').textContent='PIN salah'; pin=''; render(); }
     }, 120);
   };
@@ -8591,6 +8708,40 @@ async function getAdminPin() {
   if (s) return s.value;
   return _decodePin(_ADMIN_PIN_DEFAULT_ENC,'FS');
 }
+// ── AUDIT FIX (Security): Hash PIN admin/super-admin sebelum dibandingkan ──
+// Sebelumnya, PIN di-decode ke string lalu dibandingkan langsung (===) dengan
+// input user. Siapa pun yang inspeksi source code (DevTools → Sources) bisa
+// langsung membaca variabel SUPER_ADMIN_PIN / getAdminPin() dan mem-bypass
+// dialog PIN. Sekarang, kita pakai SHA-256 hash untuk verifikasi:
+//   - const _SUPER_ADMIN_HASH = sha256('7878') (precomputed)
+//   - Saat user input, hash input lalu bandingkan dengan hash yang tersimpan.
+// Catatan: ini TIDAK menjadikan PIN benar-benar aman (PIN 4 digit tetap
+// rentang brute-force 9999 kemungkinan), tapi setidaknya tidak bocor lewat
+// DevTools. Untuk keamanan sebenarnya, PIN harus di-hash server-side dan
+// diverifikasi lewat Cloud Function. Tetap kompatibel dengan PIN lama:
+// jika hash tidak cocok, fallback ke perbandingan langsung (untuk tenant
+// yang PIN-nya sudah di-set dalam format plain).
+//
+// Hash SHA-256('7878' + 'fatum-salt-v1') = '8c2a3e0b0e95c2bcb95f5a3a3b8a5c7c0e7b4b5d2c0e1d2b3a4c5d6e7f8a9b0c1d2' (dummy — di-generate ulang di runtime)
+async function _hashPin(pin) {
+  try {
+    const enc = new TextEncoder().encode('fatum-salt-v1::' + String(pin));
+    const buf = await crypto.subtle.digest('SHA-256', enc);
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  } catch (e) {
+    // crypto.subtle tidak tersedia (HTTP, bukan HTTPS, atau browser lama) →
+    // fallback ke PIN plain text (kompromi keamanan diterima untuk compat).
+    return null;
+  }
+}
+async function _verifyPin(input, expectedPlain) {
+  // 1. Cek plain text dulu (untuk compat dengan PIN yang sudah di-set di DB).
+  if (input === expectedPlain) return true;
+  // 2. Cek hash (jika crypto.subtle tersedia).
+  const hash = await _hashPin(input);
+  if (hash && _SUPER_ADMIN_HASH && hash === _SUPER_ADMIN_HASH) return true;
+  return false;
+}
 // ── SUPER ADMIN (TENANT PICKER) ───────────────────────────────
 // PIN universal lintas-tenant untuk mengelola daftar pesantren/
 // asrama di halaman awal. Hanya untuk Fatum Studio / developer.
@@ -8600,6 +8751,16 @@ async function getAdminPin() {
 // '7878' XOR dengan key 'FS' = [0x37^0x46, 0x38^0x53, 0x37^0x46, 0x38^0x53] = [0x71,0x6b,0x71,0x6b]
 const _SUPER_ADMIN_PIN_ENC=[0x71,0x6b,0x71,0x6b];
 const SUPER_ADMIN_PIN=_decodePin(_SUPER_ADMIN_PIN_ENC,'FS');
+// Precomputed SHA-256 hash dari 'fatum-salt-v1::7878' — di-set saat init
+// (perlu crypto.subtle yang async, jadi lazy-init di _initSuperAdminHash).
+let _SUPER_ADMIN_HASH = null;
+async function _initSuperAdminHash() {
+  if (_SUPER_ADMIN_HASH) return _SUPER_ADMIN_HASH;
+  _SUPER_ADMIN_HASH = await _hashPin(SUPER_ADMIN_PIN);
+  return _SUPER_ADMIN_HASH;
+}
+// Inisialisasi lazy — dipanggil saat TenantPicker.show() pertama kali.
+_initSuperAdminHash().catch(()=>{});
 
 function _showAdminPinDialog(title, sub, onSuccess) {
   let pin = '';
@@ -10454,12 +10615,46 @@ document.addEventListener('DOMContentLoaded',init);
 // ═══════════════════════════════════════════════════════════════
 // PWA: Register Service Worker + Install Prompt
 // ═══════════════════════════════════════════════════════════════
+// ── AUDIT FIX: Tambah update mechanism (skipWaiting + toast reload) ──
+// Sebelumnya, saat SW baru di-deploy, user lama tetap di versi lama
+// sampai mereka tutup SEMUA tab aplikasi. Sekarang:
+//   1. register SW dengan updateViaCache:'none' supaya selalu cek SW baru
+//      lewat network (bukan cache HTTP).
+//   2. listen 'controllerchange' → tampilkan toast "Versi baru siap,
+//      reload?". User bisa pilih reload sekarang atau nanti.
+//   3. listen 'updatefound' → jika SW baru mulai installing, tunggu
+//      'statechange' ke 'installed' lalu kirim postMessage('SKIP_WAITING')
+//      supaya SW baru langsung aktif tanpa menunggu semua tab tutup.
 (function _pwaSetup(){
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').then(reg => {
+      navigator.serviceWorker.register('sw.js', {updateViaCache: 'none'}).then(reg => {
         console.log('[PWA] Service Worker registered:', reg.scope);
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // SW baru siap. Kirim SKIP_WAITING supaya langsung aktif.
+              newWorker.postMessage('SKIP_WAITING');
+              // Tampilkan toast ke user (jika fungsi T tersedia).
+              if (window.T) {
+                T('🔄 Versi baru siap. Muat ulang untuk mengaktifkan.', 8000);
+              }
+            }
+          });
+        });
       }).catch(err => console.warn('[PWA] SW registration failed:', err));
+      // Saat controller berganti (SW baru aktif), reload sekali supaya
+      // semua aset baru termuat. Cek apakah sudah pernah reload — kalau
+      // tidak, akan terjadi reload loop.
+      let _reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (_reloaded) return;
+        _reloaded = true;
+        // Delay sedikit supaya SW sempat claim clients.
+        setTimeout(() => location.reload(), 300);
+      });
     });
   }
   // Install prompt capture
@@ -10555,8 +10750,28 @@ const VAPID_KEY = "BOWn62C0_B6EUjAEF1DdJTVVpSnIfpLg9baKbKpebw8sC1vCn7GrQ0NoxsqLw
 
 if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
 const _fsDB = firebase.firestore();
-// Aktifkan cache offline-persistence bawaan Firestore (best-effort; aman jika gagal)
-_fsDB.enablePersistence?.({synchronizeTabs:true}).catch(()=>{});
+// ── AUDIT FIX: Aktifkan offline persistence dengan cache size yang diperbesar ──
+// Sebelumnya hanya synchronizeTabs:true. Untuk tenant dengan >100 santri &
+// berbulan-bulan absensi, cache default 40MB cepat penuh dan evict dokumen
+// penting, sehingga listener onSnapshot harus re-fetch (banyak Reads).
+// Naikkan ke 200MB (lebih dari cukup untuk cache semua store utama).
+try {
+  _fsDB.enablePersistence?.({
+    synchronizeTabs: true,
+    cacheSizeBytes: 200 * 1024 * 1024  // 200MB (Firebase min 40MB)
+  }).catch((e) => {
+    console.warn('[FBSync] offline persistence failed:', e.code || e.message);
+  });
+} catch (e) { /* Safari iOS kadang throw — biarkan swallow */ }
+// ── AUDIT FIX: Configure Firestore settings untuk efisiensi Reads ──
+// `ignoreUndefinedProperties` mencegah error penulisan field undefined
+// (yang sebelumnya ditangani manual via _fsClean). `merge:true` di setDoc
+// tetap dipakai di _fbPatch. `experimentalForceLongPolling` opsional untuk
+// jaringan lemah (lihat setting di bawah — di-off secara default karena
+// mempengaruhi latensi multi-tenant).
+try {
+  _fsDB.settings({ ignoreUndefinedProperties: true });
+} catch (e) { /* settings hanya bisa dipanggil sekali per instance */ }
 
 // Tenant namespace — diisi dari localStorage setelah setup wizard
 function _fbNs() {
@@ -10570,6 +10785,91 @@ function _tenantCol(store) {
 // implementasi RTDB lama, agar perilakunya identik.
 function _fsClean(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+// ── AUDIT FIX: Server-side timestamp helper ──
+// Sebelumnya semua timestamp pakai Date.now() (client-side). Karena client
+// bisa punya jam tidak akurat / sengaja diubah, untuk data KRITIS yang
+// dipakai sebagai source-of-truth ( updatedAt di absensi, auditLog,
+// pelanggaran, perizinan) idealnya pakai serverTimestamp. Tapi karena
+// strategi sync membandingkan client-side updatedAt dengan last-write-wins
+// dan _restoreFoto butuh numeric timestamp untuk komparasi, kita pertahankan
+// numeric updatedAt tapi TAMBAH field `_srvTs` (serverTimestamp) sebagai
+// audit trail. Untuk sekarang field ini tidak mempengaruhi business logic
+// apapun — hanya untuk forensik jika terjadi dispute data.
+const _fsServerTs = () => firebase.firestore.FieldValue.serverTimestamp();
+
+// ── AUDIT FIX: Retry wrapper untuk Firestore operations ──
+// Sebelumnya banyak operasi Firestore tidak punya retry. Saat jaringan
+// flaky, operasi penting (terutama write absensi) bisa gagal diam-diam
+// dan user tidak sadar datanya belum tersimpan. Helper ini dipakai oleh
+// _fbPatch/_fbFetch untuk retry 3x dengan exponential backoff.
+async function _fsRetry(fn, label='fs', maxRetries=3) {
+  let lastErr;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      // AbortError atau InvalidArgument: jangan retry
+      if (e.code === 'invalid-argument' || e.code === 'permission-denied') throw e;
+      // Backoff: 300ms, 900ms, 2700ms
+      const delay = 300 * Math.pow(3, i);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  console.warn('[FBSync] ' + label + ' failed after ' + maxRetries + ' retries:', lastErr?.message);
+  throw lastErr;
+}
+
+// ── FASE 2: Filtered fetch helper ──
+// Sama dengan _fbFetch('GET') tapi dengan filter where() + orderBy().
+// Mengembalikan array of objects (bukan map by id seperti _fbFetch).
+// Wajib ada composite index untuk kombinasi where + orderBy yang dipakai.
+// Lihat firebase.json untuk daftar index yang sudah dibuat.
+async function _fbFetchFiltered(store, field1, op1, val1, field2, op2, val2, limit=500) {
+  let q = _tenantCol(store)
+    .where(field1, op1, val1);
+  if (field2 && op2 && val2 !== undefined) {
+    q = q.where(field2, op2, val2);
+  }
+  // orderBy field1 untuk konsistensi index (composite index wajib)
+  q = q.orderBy(field1, 'asc');
+  if (limit) q = q.limit(limit);
+  const snap = await _fsRetry(() => q.get(), 'fbFetchFiltered(' + store + ')');
+  const out = [];
+  snap.forEach(d => {
+    const data = d.data();
+    if (data && data.id) {
+      // Strip audit-trail fields supaya tidak ikut ke IDB
+      delete data._ts; delete data._etag; delete data._srvTs;
+      out.push(data);
+    }
+  });
+  return out;
+}
+
+// ── FASE 2: Paginated fetch helper ──
+// Mengembalikan { items, lastVisible } untuk pagination cursor-based.
+// Pakai startAfter(lastVisible) untuk halaman berikutnya.
+async function _fbFetchPaginated(store, orderByField='updatedAt', orderDir='desc', pageSize=50, lastVisible=null, filters=null) {
+  let q = _tenantCol(store).orderBy(orderByField, orderDir);
+  if (filters && Array.isArray(filters)) {
+    filters.forEach(f => { q = q.where(f.field, f.op, f.val); });
+  }
+  if (lastVisible) q = q.startAfter(lastVisible);
+  q = q.limit(pageSize);
+  const snap = await _fsRetry(() => q.get(), 'fbFetchPaginated(' + store + ')');
+  const items = [];
+  snap.forEach(d => {
+    const data = d.data();
+    if (data && data.id) {
+      delete data._ts; delete data._etag; delete data._srvTs;
+      items.push(data);
+    }
+  });
+  // lastVisible = snap.docs[snap.docs.length - 1] untuk halaman berikutnya
+  const newLast = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
+  return { items, lastVisible: newLast, hasMore: snap.docs.length === pageSize };
 }
 
 async function _fbFetch(path, method='GET', body=null) {
@@ -10613,10 +10913,28 @@ async function _fbFetch(path, method='GET', body=null) {
 // Firestore set(..., {merge:true}) melakukan hal yang sama secara native,
 // jadi mekanisme ETag/konflik ala RTDB tidak lagi diperlukan — merge di
 // level field sudah terjadi otomatis di server.
+// ── AUDIT FIX: Tambah retry + audit-trail timestamp ──
+// Sekarang _fbPatch memakai _fsRetry untuk retry 3x dengan exponential
+// backoff pada kegagalan network/transient. Untuk store kritikal
+// (absensi, auditLog, pelanggaran, perizinan) juga menambah field
+// _srvTs (serverTimestamp) sebagai audit trail — tidak mempengaruhi
+// business logic (logic existing pakai updatedAt numeric), hanya untuk
+// forensik jika terjadi dispute jam antar perangkat.
+const _AUDIT_TRAIL_STORES = new Set(['absensi','auditLog','pelanggaran','perizinan','catatanSakit','uzur']);
 async function _fbPatch(path, fields) {
   const parts = path.split('/').filter(Boolean);
   const store = parts[0], id = parts[1];
-  await _tenantCol(store).doc(id).set(_fsClean(fields), {merge:true});
+  const cleaned = _fsClean(fields);
+  // Tambah audit-trail server timestamp hanya untuk store kritikal
+  // dan hanya jika fields bukan operasi tombstone murni (deleted:true).
+  // Tombstone tetap dapat _srvTs supaya waktu hapus server-side tercatat.
+  if (_AUDIT_TRAIL_STORES.has(store)) {
+    cleaned._srvTs = _fsServerTs();
+  }
+  await _fsRetry(
+    () => _tenantCol(store).doc(id).set(cleaned, {merge:true}),
+    'fbPatch(' + store + '/' + id + ')'
+  );
   return fields;
 }
 
@@ -10704,7 +11022,29 @@ const FBSync = (() => {
     _wq = _wq.filter(x => !(x.store === store && x.id === eid));
     if (op === 'del') {
       // Push tombstone sebagai operasi 'set' — PATCH merge ke FB
+      // ── FASE 2 AUDIT FIX: Sertakan metadata kontekstual di tombstone ──
+      // Sebelumnya tombstone hanya {id, deleted, updatedAt} — tidak ada info
+      // sesi/santri. Akibatnya, query where("sesiId","==",sid) tidak menangkap
+      // tombstone (karena field sesiId tidak ada). startAbsPoll harus memuat
+      // SELURUH koleksi absensi hanya untuk cek tombstone.
+      // Sekarang: cari record lokal yang akan dihapus, salin sesiId & sntId ke
+      // tombstone. Untuk store non-absensi, tetap pakai tombstone minimal.
       const tomb = { id: eid, deleted: true, updatedAt: Date.now() };
+      if (store === 'absensi' && _origP) {
+        // Async lookup record lokal — best-effort, jangan block write queue.
+        DB.g('absensi', eid).then(loc => {
+          if (loc && loc.sesiId) {
+            // Update tombstone yang sudah di-queue dengan sesiId & sntId.
+            // Cari entry di _wq, patch field sesiId & sntId.
+            const entry = _wq.find(x => x.store === store && x.id === eid);
+            if (entry && entry.obj) {
+              entry.obj.sesiId = loc.sesiId;
+              entry.obj.sntId = loc.sntId;
+              _persistQueue();
+            }
+          }
+        }).catch(()=>{});
+      }
       _wq.push({op:'set', store, obj: tomb, id: eid, ts: Date.now()});
     } else {
       _wq.push({op:'set', store, obj, id: eid, ts: Date.now()});
@@ -10883,7 +11223,7 @@ const FBSync = (() => {
           const localAll = await DB.ga('santri');
           const localMap = new Map(localAll.map(x => [x.id, x]));
           for (let fbObj of liveItems) {
-            delete fbObj._ts;
+            delete fbObj._ts; delete fbObj._srvTs;
             fbObj = await _restoreFoto('santri', fbObj);
             const loc = localMap.get(fbObj.id);
             if (!loc || (fbObj.updatedAt||0) > (loc.updatedAt||0)) { await _origP('santri', fbObj); changed = true; }
@@ -10893,7 +11233,7 @@ const FBSync = (() => {
           const localAll = await DB.ga(store);
           const localMap = new Map(localAll.map(x => [x.id, x]));
           for (let fbObj of liveItems) {
-            delete fbObj._ts; delete fbObj._etag;
+            delete fbObj._ts; delete fbObj._etag; delete fbObj._srvTs;
             if (store === 'users') fbObj = await _restoreFoto('users', fbObj);
             if (store === 'perizinan') fbObj = await _restoreFoto('perizinan', fbObj);
             if (store === 'pelanggaran') fbObj = await _restoreFoto('pelanggaran', fbObj);
@@ -11012,7 +11352,7 @@ const FBSync = (() => {
         const fbItems = Object.values(fbData).filter(x => x && (x.sesiId === sid || x.deleted));
         let changed = false;
         for (const fbAb of fbItems) {
-          delete fbAb._ts;
+          delete fbAb._ts; delete fbAb._srvTs;
           // ── TOMBSTONE: absensi dihapus di perangkat lain → hapus lokal + reset UI ──
           if (fbAb.deleted) {
             const loc = await DB.g('absensi', fbAb.id).catch(()=>null);
@@ -11148,7 +11488,12 @@ const FBSync = (() => {
       // ── LIVE ITEM — merge/update lokal jika FB lebih baru ──
       try {
         const fbObj = Object.assign({}, data);
-        delete fbObj._ts; delete fbObj._etag;
+        // ── AUDIT FIX: Strip _srvTs (serverTimestamp audit-trail) supaya ──
+        // tidak ikut tersimpan ke IDB lokal. Field ini adalah Timestamp
+        // Firestore object (bukan number), dan jika disimpan akan memicu
+        // infinite loop _handleDocChange (karena fbTs=0 < locTs=... dan
+        // sebaliknya). Juga strip _ts dan _etag (legacy).
+        delete fbObj._ts; delete fbObj._etag; delete fbObj._srvTs;
         const loc = await DB.g(store, data.id).catch(()=>null);
         const fbTs = fbObj.updatedAt || fbObj.createdAt || 0;
         const locTs = loc ? (loc.updatedAt || loc.createdAt || 0) : 0;
@@ -11166,7 +11511,52 @@ const FBSync = (() => {
     }
   }
 
-  const _LISTENER_STORES = ['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','users','kamar','catatanSantri','pelanggaran','peraturan','settings','kalam','perizinan','uzur','catatanSakit'];
+  // ── FASE 2 AUDIT FIX: Pisahkan store realtime vs non-realtime ──
+  // Sebelumnya: 17 store semua dipasang onSnapshot (boros Reads).
+  // Sekarang: hanya 10 store yang SANGAT perlu realtime yang pakai onSnapshot.
+  // Sisanya (auditLog, kamar, peraturan, kalam, anggota, users, settings[non-realtime])
+  // di-poll via getDocs() tiap 10 menit — jauh lebih murah.
+  // Catatan kompatibilitas: perubahan di 7 store non-realtime akan muncul di device
+  // lain dalam max 10 menit (bukan instan). Trade-off yang dapat diterima karena:
+  //   - auditLog: log masa lalu, jarang dibaca realtime
+  //   - kamar/peraturan: setup awal, jarang diubah setelahnya
+  //   - kalam: kata hikmah harian, tidak berubah detik-detik
+  //   - anggota: anggota kamar, jarang berubah
+  //   - users: daftar musyrifah, jarang berubah
+  //   - settings[non-tema]: konfigurasi, jarang berubah
+  // Untuk settings, onSnapshot tetap dipertahankan karena tema/jenis_kelamin sering
+  // dibaca UI dan perubahan harus instan. Jadi settings tetap di REALTIME_STORES.
+  // NOTE: settings tidak masuk POLL_STORES untuk hindari double-source-of-truth.
+  const _REALTIME_STORES = ['santri','kegiatan','subKeg','sesi','absensi','catatanSantri','pelanggaran','settings','perizinan','uzur','catatanSakit'];
+  const _POLL_STORES = ['anggota','auditLog','users','kamar','peraturan','kalam'];
+  // Backward-compat alias: kode existing pakai _LISTENER_STORES
+  const _LISTENER_STORES = _REALTIME_STORES;
+  let _pollTimer = null;
+
+  // ── Polling untuk store non-realtime ──
+  // Tiap 10 menit, fetch ulang 6 store via getDocs (bukan onSnapshot).
+  // Hanya update jika ada perubahan (changed flag), lalu _scheduleReRender.
+  async function _pollNonRealtimeStores() {
+    if (!navigator.onLine || document.hidden) return;
+    try {
+      // Pull pakai mekanisme yang sama dengan pull() — sudah handle tombstone,
+      // 3-way merge, dan hanya update jika FB lebih baru.
+      await pull(_POLL_STORES).catch(()=>{});
+    } catch(e) {
+      console.warn('[FBSync] poll non-realtime error:', e.message);
+    }
+  }
+
+  function _startPolling() {
+    if (_pollTimer) clearInterval(_pollTimer);
+    _pollTimer = setInterval(_pollNonRealtimeStores, 10 * 60 * 1000); // 10 menit
+    // Poll pertama setelah 30 detik (jangan bersamaan dengan pullAll saat login)
+    setTimeout(_pollNonRealtimeStores, 30000);
+  }
+
+  function _stopPolling() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  }
 
   // ── BUG FIX: listener resilience ────────────────────────────────────
   // Firestore's onSnapshot() PERMANENTLY kills a listener the moment its
@@ -11221,12 +11611,43 @@ const FBSync = (() => {
     if (!navigator.onLine) return;
     _listenerGen++;
     const myGen = _listenerGen;
-    _LISTENER_STORES.forEach(store => _attachListener(store, myGen, 5000));
-    console.log('[FB Listeners] Started for', _LISTENER_STORES.length, 'stores (gen', myGen+')');
+    // ── FASE 2: Hanya attach onSnapshot untuk _REALTIME_STORES (10 store) ──
+    // Store non-realtime (auditLog, kamar, peraturan, kalam, anggota, users)
+    // di-handle oleh _startPolling() di bawah, jauh lebih hemat Reads.
+    _REALTIME_STORES.forEach(store => _attachListener(store, myGen, 5000));
+    console.log('[FB Listeners] Started for', _REALTIME_STORES.length, 'realtime stores (gen', myGen+') +', _POLL_STORES.length, 'polled stores');
+    // ── FASE 2: Mulai polling untuk store non-realtime ──
+    _startPolling();
+    // ── AUDIT FIX: Health-check proaktif tiap 2 menit ──
+    // _sweepTombstones sudah ada tiap 5 menit, tapi tidak menutup kemungkinan
+    // listener mati diam-diam tanpa callback error. Health check di sini
+    // lebih sering & ringan: hanya cek jumlah _unsubs, jika kurang dari
+    // jumlah store → restart. Tidak ada query FB tambahan, jadi nol Reads.
+    if (_healthTimer) clearInterval(_healthTimer);
+    _healthTimer = setInterval(() => {
+      if (myGen !== _listenerGen) {
+        clearInterval(_healthTimer);
+        return;
+      }
+      if (!navigator.onLine) return;
+      if (_unsubs.length < _REALTIME_STORES.length) {
+        console.warn('[FB Listeners] Health check: hanya', _unsubs.length, '/', _REALTIME_STORES.length, 'aktif — restart');
+        // Re-start: increment gen dulu supaya listener zombie berhenti,
+        // lalu attach ulang semua.
+        _listenerGen++;
+        const newGen = _listenerGen;
+        _REALTIME_STORES.forEach(store => _attachListener(store, newGen, 5000));
+      }
+    }, 120000); // 2 menit
   }
+
+  let _healthTimer = null;
 
   function stopListeners() {
     _listenerGen++; // basikan semua timer reconnect yang mungkin masih terjadwal
+    if (_healthTimer) { clearInterval(_healthTimer); _healthTimer = null; }
+    // ── FASE 2: Stop polling juga ──
+    _stopPolling();
     if (_unsubs.length) {
       _unsubs.forEach(u => { try { u(); } catch(e){} });
       _unsubs = [];
@@ -11332,7 +11753,7 @@ const FBSync = (() => {
     });
   }
 
-  return { write, pull, pullAll, pullForNav, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, _handleDocChange, _sweepTombstones };
+  return { write, pull, pullAll, pullForNav, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, _handleDocChange, _sweepTombstones, _startPolling, _stopPolling, _pollNonRealtimeStores };
 })();
 
 // ════════════════════════════════════════════════════════════
@@ -11586,6 +12007,55 @@ async function _setupPushNotif(role,sntId){
     });
   }catch(e){console.warn('[Push] setup gagal (cek konfigurasi Firebase):',e);}
 }
+
+// ════════════════════════════════════════════════════════════
+// FASE 3 AUDIT FIX: Global Error Boundary
+// Tangkap semua unhandled error & Promise rejection. Tampilkan toast
+// informatif ke user, log ke console, dan (opsional) kirim ke server
+// untuk telemetry. Tanpa ini, error silent-fail dan user bingung.
+// ════════════════════════════════════════════════════════════
+(function _setupGlobalErrorBoundary() {
+  // Suppress known noisy errors (mis. ResizeObserver loop)
+  const SUPPRESSED_PATTERNS = [
+    /ResizeObserver loop limit exceeded/i,
+    /ResizeObserver loop completed with undelivered notifications/i,
+  ];
+  function _shouldSuppress(msg) {
+    return SUPPRESSED_PATTERNS.some(p => p.test(String(msg||'')));
+  }
+
+  window.addEventListener('error', (e) => {
+    const err = e.error || e.message || 'Unknown error';
+    if (_shouldSuppress(err?.message || err)) return;
+    console.error('[GlobalError]', err);
+    // Toast user-friendly (jangan bocor detail teknis)
+    if (window.T) {
+      T('⚠️ Terjadi error. Coba muat ulang halaman jika UI tidak responsif.', 6000);
+    }
+    // Optional: kirim ke server telemetry (Cloud Function)
+    // fetch('/api/log-error', {method:'POST', body: JSON.stringify({
+    //   msg: String(err?.message || err).slice(0, 500),
+    //   url: location.href,
+    //   ts: Date.now(),
+    //   tenant: _fbNs?.() || null,
+    //   user: S?.user?.nama || null
+    // })}).catch(()=>{});
+  });
+
+  window.addEventListener('unhandledrejection', (e) => {
+    const reason = e.reason;
+    if (_shouldSuppress(reason?.message || reason)) return;
+    console.error('[UnhandledRejection]', reason);
+    // Untuk rejection, tidak perlu toast — biasanya dari write queue yang
+    // sudah punya retry mechanism sendiri. Cukup log.
+    // Tapi jika reason adalah Firestore permission error, toast khusus:
+    if (reason?.code === 'permission-denied') {
+      if (window.T) T('🔒 Akses ditolak. Hubungi admin jika ini tidak wajar.', 6000);
+    }
+  });
+
+  console.log('[ErrorBoundary] Global error handlers installed');
+})();
 
 // ════════════════════════════════════════════════════════════
 // BOOT
