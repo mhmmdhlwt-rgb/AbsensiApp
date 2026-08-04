@@ -2040,13 +2040,39 @@ const App={
     this.nav(root);
   },
 
+  // AUDIT v3g: Dashboard data cache — hindari baca 10 store ulang setiap render
+  // Cache TTL 15 detik. Jika dashboard di-render ulang dalam 15 detik (mis. dari
+  // _scheduleReRender), pakai cache. Invalidate saat ada perubahan absensi/sesi
+  // (sudah di-handle oleh onSnapshot yang invalidate DB cache).
+  _dashCache: null,
+  _dashCacheTs: 0,
+  _DASH_CACHE_TTL: 15000, // 15 detik
   async dash(){
+    // Cek cache dulu
+    const now = Date.now();
+    if (this._dashCache && (now - this._dashCacheTs) < this._DASH_CACHE_TTL) {
+      const c = this._dashCache;
+      // Pakai cache, tapi tetap jalankan side-effects (auto-lock, badge, reminder)
+      this._updateIznBadge();
+      this._cekReminderTelatIzin();
+      this._autoLockExpiredSesi();
+      this._checkUzurReminders().catch(e=>console.warn('[Uzur] reminder error:',e));
+      // Render pakai data cache
+      return this._renderDash(c.snt, c.ses, c.abs, c.kg, c.sk, c.kalamList, c.per, c.pel, c.uzurAll, c.sakitAllDash);
+    }
     const [snt,ses,abs,kg,sk,kalamList,per,pel,uzurAll,sakitAllDash]=await Promise.all([DB.ga('santri'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('kegiatan'),DB.ga('subKeg'),DB.ga('kalam'),DB.ga('perizinan'),DB.ga('pelanggaran'),DB.ga('uzur').catch(()=>[]),DB.ga('catatanSakit').catch(()=>[])]);
+    // Simpan ke cache
+    this._dashCache = { snt, ses, abs, kg, sk, kalamList, per, pel, uzurAll, sakitAllDash };
+    this._dashCacheTs = now;
     this._updateIznBadge();
     this._cekReminderTelatIzin();
     this._autoLockExpiredSesi();
     // Monitoring otomatis uzur (hari ke-7 reminder, hari ke-15 auto-off)
     this._checkUzurReminders().catch(e=>console.warn('[Uzur] reminder error:',e));
+    return this._renderDash(snt, ses, abs, kg, sk, kalamList, per, pel, uzurAll, sakitAllDash);
+  },
+  // AUDIT v3g: Render logic dipisah dari data fetch supaya bisa pakai cache
+  async _renderDash(snt, ses, abs, kg, sk, kalamList, per, pel, uzurAll, sakitAllDash) {
     const todayKalam=_kalamOfDay(kalamList);
     const today=_todayLocal();
     // Status pondok hari ini (di-1x di sini, dipakai beberapa kali di template)
@@ -12601,15 +12627,27 @@ const FBSync = (() => {
     if (!navigator.onLine) return;
     _listenerGen++;
     const myGen = _listenerGen;
-    // ── AUDIT v3: Realtime HANYA untuk absensi & sesi ──
-    // 2 listener saja. Semua store lain di-load on-demand via pullForNav
-    // dengan cache 5 menit. Ini drastis mengurangi:
-    //   - Reads (dari ~4,250/boot jadi ~600/boot untuk 2 store)
-    //   - Re-render triggers (hanya perubahan absensi/sesi yang re-render)
-    //   - WebSocket connections (dari 17 jadi 2)
+    // ── AUDIT v3g: LAZY LISTENER — hanya attach jika halaman aktif butuh realtime ──
+    // Sebelumnya: 2 listener (absensi, sesi) aktif sepanjang waktu meski user
+    // di halaman Pengaturan/Chat yang tidak butuh realtime absensi/sesi.
+    // Sekarang: cek halaman aktif. Jika tidak butuh realtime, jangan attach.
+    // Listener akan di-attach saat user navigasi ke halaman yang butuh.
+    // Halaman yang butuh realtime absensi/sesi: dash, abs, kgd, rek, profil
+    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
+    const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
+    if (!REALTIME_PAGES.includes(currentPage)) {
+      console.log('[FB Listeners] Skipped — page', currentPage, 'tidak butuh realtime');
+      // Tetap start health check supaya bisa attach jika user pindah ke halaman realtime
+      _startHealthCheck(myGen);
+      return;
+    }
     _REALTIME_STORES.forEach(store => _attachListener(store, myGen, 5000));
-    console.log('[FB Listeners] Started for', _REALTIME_STORES.length, 'realtime stores (gen', myGen+') — other stores via on-demand pull');
-    // ── AUDIT FIX: Health-check proaktif tiap 2 menit ──
+    console.log('[FB Listeners] Started for', _REALTIME_STORES.length, 'realtime stores (gen', myGen+') — page:', currentPage);
+    _startHealthCheck(myGen);
+  }
+
+  // AUDIT v3g: Health check terpisah supaya bisa jalan meski listener tidak attach
+  function _startHealthCheck(myGen) {
     if (_healthTimer) clearInterval(_healthTimer);
     _healthTimer = setInterval(() => {
       if (myGen !== _listenerGen) {
@@ -12617,7 +12655,10 @@ const FBSync = (() => {
         return;
       }
       if (!navigator.onLine) return;
-      if (_unsubs.length < _REALTIME_STORES.length) {
+      // Hanya restart jika ada listener yang seharusnya aktif tapi mati
+      const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
+      const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
+      if (REALTIME_PAGES.includes(currentPage) && _unsubs.length < _REALTIME_STORES.length) {
         console.warn('[FB Listeners] Health check: hanya', _unsubs.length, '/', _REALTIME_STORES.length, 'aktif — restart');
         _listenerGen++;
         const newGen = _listenerGen;
@@ -12797,13 +12838,27 @@ const FBSync = (() => {
       clearInterval(ChatModule._pollTimer);
       ChatModule._pollTimer = null;
     }
+    // ── AUDIT v3g: LAZY LISTENER — attach/detach berdasarkan halaman ──
+    // Halaman yang butuh realtime absensi/sesi: dash, abs, kgd, rek, profil, kg, sub
+    // Halaman yang TIDAK butuh realtime: set, pel, izn, snt, sntd, chat
+    // Saat user pindah KE halaman realtime, start listeners.
+    // Saat user pindah DARI halaman realtime ke non-realtime, stop listeners.
+    // Ini hemat ~300 reads/jam untuk user yang lama di halaman non-realtime.
+    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
+    const wasRealtime = REALTIME_PAGES.includes(S.page);
+    const willBeRealtime = REALTIME_PAGES.includes(pg);
+    if (navigator.onLine) {
+      if (willBeRealtime && !wasRealtime) {
+        // Masuk ke halaman realtime — attach listeners
+        setTimeout(() => FBSync.startListeners(), 100);
+      } else if (!willBeRealtime && wasRealtime) {
+        // Keluar dari halaman realtime — detach listeners (hemat reads)
+        FBSync.stopListeners();
+      }
+    }
     // Pull data halaman tujuan secara NON-BLOCKING (paralel dengan render)
-    // agar tidak ada delay saat ganti tab bottom nav.
-    // AUDIT v3: pullForNav sekarang punya cache 5 menit + handle re-render
-    // sendiri setelah pull selesai. Tidak perlu double re-render di sini.
     const _fastPages = ['chat'];
     if (navigator.onLine && !_fastPages.includes(pg)) {
-      // Fire-and-forget — pullForNav handle sendiri re-render setelah selesai
       FBSync.pullForNav(pg).catch(()=>{});
     }
     await _origNav(pg, opts);
