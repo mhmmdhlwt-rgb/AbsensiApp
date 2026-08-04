@@ -2546,17 +2546,26 @@ const App={
     }
   },
   async _doSt(absId,sntId,newSt,sid){
+    // ── AUDIT v3d FIX: Guard sesi terkunci ──
+    // Sebelumnya: _doSt tidak cek sx.locked. Jika sesi sudah terkunci (auto
+    // atau manual), perubahan status masih bisa ditulis — ini bisa menyebabkan
+    // race condition di mana auto-lock set 'alpha' di device B sementara user
+    // di device A baru saja set 'hadir'. Sekarang: cek locked dulu, tolak
+    // perubahan kecuali admin mode aktif.
     let ab=await DB.g('absensi',absId);const old=ab?.status;
     const _adminOv=S._adminOverride===true;
     const olehLabel=(_adminOv?'[Admin] ':'')+(S.user?.nama||'-');
     if(!ab)ab={id:absDetId(sid,sntId),sesiId:sid,sntId,status:newSt,oleh:olehLabel,updatedAt:Date.now()};
     else{ab.status=newSt;ab.oleh=olehLabel;ab.updatedAt=Date.now()}
     // ── PERFORMANCE: parallel DB reads ─────────────────────────
-    // Sebelumnya: 4 sequential awaits (santri, sesi, kegiatan, subKeg)
-    // Sekarang: 2 tahap paralel (santri+sesi, lalu kegiatan+subKeg)
     const [sn,sx]=await Promise.all([DB.g('santri',sntId),DB.g('sesi',sid)]);
+    // Guard: jika sesi terkunci & bukan admin mode, tolak perubahan
+    if (sx?.locked && !_adminOv) {
+      T('🔒 Sesi terkunci! Aktifkan Mode Admin di Pengaturan untuk mengubah.', 3000);
+      return;
+    }
     const [k,sk]=await Promise.all([DB.g('kegiatan',sx?.kgId||''),sx?.skId?DB.g('subKeg',sx.skId):Promise.resolve(null)]);
-    // Save absensi + auditLog secara paralel (audit log tidak perlu ditunggu untuk UI)
+    // Save absensi + auditLog secara paralel
     await DB.p('absensi',ab);
     DB.p('auditLog',{id:uid(),time:Date.now(),sntNama:sn?.nama||sntId,kgNama:k?.nama||'-',from:old,to:newSt,oleh:olehLabel,sid,adminOverride:_adminOv||undefined}).catch(()=>{});
     // ── CATATAN SAKIT INTEGRATION (_doSt) ──────────────────────
@@ -2786,40 +2795,75 @@ const App={
         let sx=ses.find(x=>x.id===sid);
         if(sx&&sx.locked)continue; // sudah dikunci sebelumnya (manual/auto)
 
+        // ── AUDIT v3d FIX: Cek uzur aktif untuk sholat ──
+        // Sebelumnya: santri yang uzur sholat tetap dibuat 'none', lalu di
+        // langkah berikutnya diubah jadi 'alpha' + dicatat pelanggaran.
+        // Sekarang: cek isShalat dulu. Jika sholat & santri punya uzur aktif,
+        // status langsung 'uzur' (bukan 'none'), tidak jadi alpha, tidak
+        // masuk pelanggaran.
+        const isShalat = _isShalatKegiatan(parent?.nama, s?.nama);
+        const uzurMapAuto = isShalat ? await this._uzurAktifMap(today) : {};
+        const sakitMapAuto = await this._sakitAktifMap(today);
+
         if(!sx){
           sx={id:sid,tanggal:today,kgId:s.kgId,skId:s.id,status:'draft',createdAt:Date.now(),locked:false};
           await DB.p('sesi',sx);
           const angSk=ang.filter(a=>a.skId===s.id);
           // Sub-kegiatan tanpa anggota → tidak ada yang di-absen/auto-alpha
           const targets=angSk.map(a=>a.sntId);
-          const _sakitMapAuto=await this._sakitAktifMap(today);
           for(const sntId of targets){
-            const _st=_sakitMapAuto[sntId]?'sakit':(izinMap[sntId]?'izin':'none');
-            const _pid=izinMap[sntId]||null;
-            const _oleh=_sakitMapAuto[sntId]?'Sistem (Catatan Sakit)':(izinMap[sntId]?'Sistem (Perizinan)':'Sistem (Auto)');
+            // Prioritas: uzur (jika sholat) > sakit > izin > none
+            let _st='none', _pid=null, _oleh='Sistem (Auto)';
+            if (isShalat && uzurMapAuto[sntId]) {
+              _st='uzur'; _oleh='Sistem (Uzur aktif)';
+            } else if (sakitMapAuto[sntId]) {
+              _st='sakit'; _oleh='Sistem (Catatan Sakit)';
+            } else if (izinMap[sntId]) {
+              _st='izin'; _pid=izinMap[sntId]; _oleh='Sistem (Perizinan)';
+            }
             await DB.p('absensi',{id:absDetId(sid,sntId),sesiId:sid,sntId,status:_st,perizinanId:_pid,oleh:_oleh,updatedAt:Date.now()});
           }
         }
         // Tandai semua yang masih 'none' (belum diabsen sama sekali) jadi 'alpha'
         // sekaligus catat pelanggaran auto 'Alpha' supaya masuk ke daftar pelanggaran
+        // ── AUDIT v3d FIX: Hanya yang BENAR-BENAR 'none' yang jadi alpha ──
+        // Sebelumnya: loop ini mengubah SEMUA 'none' jadi alpha, termasuk yang
+        // seharusnya uzur/sakit/izin (jika statusnya sempat di-set ke 'none'
+        // oleh bug di atas). Sekarang: cek ulang uzur/sakit/izin sebelum set alpha.
         const absNow=(await DB.ga('absensi')).filter(a=>a.sesiId===sid&&a.status==='none');
         for(const a of absNow){
-          a.status='alpha';a.oleh='Sistem (Auto \u2014 waktu habis)';a.updatedAt=Date.now();
+          // Double-check: apakah santri ini punya uzur/sakit/izin aktif?
+          const sntId=a.sntId;
+          let finalStatus='alpha';
+          let finalOleh='Sistem (Auto \u2014 waktu habis)';
+          let finalPid=null;
+          if (isShalat && uzurMapAuto[sntId]) {
+            finalStatus='uzur'; finalOleh='Sistem (Uzur aktif \u2014 auto-lock)';
+          } else if (sakitMapAuto[sntId]) {
+            finalStatus='sakit'; finalOleh='Sistem (Catatan Sakit \u2014 auto-lock)';
+          } else if (izinMap[sntId]) {
+            finalStatus='izin'; finalOleh='Sistem (Perizinan \u2014 auto-lock)'; finalPid=izinMap[sntId];
+          }
+          a.status=finalStatus; a.oleh=finalOleh; a.updatedAt=Date.now();
+          if (finalPid) a.perizinanId=finalPid;
           await DB.p('absensi',a);
-          alphaCount++;
-          // ── Buat pelanggaran auto 'Alpha' (sekali per absensi) ──
-          if(!pelByAbs[a.id]){
-            const sn=sntMap[a.sntId];
-            const newPel={id:uid(),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
-              kgId:s.kgId,kgNama:parent.nama||'-',skId:s.id,skNama:s.nama||'-',
-              tanggal:today,
-              status:'belum',catatanHukuman:'',fotoHukuman:'',
-              pelanggaranJenis:'Alpha',
-              autoSource:'waktu_habis',
-              createdAt:Date.now(),updatedAt:Date.now()};
-            await DB.p('pelanggaran',newPel);
-            pelByAbs[a.id]=newPel;
-            pelCount++;
+          if (finalStatus === 'alpha') {
+            alphaCount++;
+            // ── Buat pelanggaran auto 'Alpha' (sekali per absensi) ──
+            // HANYA untuk alpha — bukan untuk uzur/sakit/izin
+            if(!pelByAbs[a.id]){
+              const sn=sntMap[a.sntId];
+              const newPel={id:uid(),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
+                kgId:s.kgId,kgNama:parent.nama||'-',skId:s.id,skNama:s.nama||'-',
+                tanggal:today,
+                status:'belum',catatanHukuman:'',fotoHukuman:'',
+                pelanggaranJenis:'Alpha',
+                autoSource:'waktu_habis',
+                createdAt:Date.now(),updatedAt:Date.now()};
+              await DB.p('pelanggaran',newPel);
+              pelByAbs[a.id]=newPel;
+              pelCount++;
+            }
           }
         }
         sx.locked=true;sx.status='selesai';sx.updatedAt=Date.now();
@@ -2847,36 +2891,60 @@ const App={
         const sid='ses_'+today+'_'+k.id;
         let sx=ses.find(x=>x.id===sid);
         if(sx&&sx.locked)continue;
+        // ── AUDIT v3d FIX: Cek uzur aktif untuk sholat (kegiatan tanpa sub) ──
+        const isShalatK = _isShalatKegiatan(k?.nama, null);
+        const uzurMapAutoK = isShalatK ? await this._uzurAktifMap(today) : {};
+        const sakitMapAutoK = await this._sakitAktifMap(today);
         if(!sx){
           sx={id:sid,tanggal:today,kgId:k.id,skId:null,status:'draft',createdAt:Date.now(),locked:false};
           await DB.p('sesi',sx);
           // Target: semua santri aktif (tidak ada anggota sub-kegiatan)
           const targets=snt.filter(x=>x.aktif).map(x=>x.id);
-          const _sakitMapAuto=await this._sakitAktifMap(today);
           for(const sntId of targets){
-            const _st=_sakitMapAuto[sntId]?'sakit':(izinMap[sntId]?'izin':'none');
-            const _pid=izinMap[sntId]||null;
-            const _oleh=_sakitMapAuto[sntId]?'Sistem (Catatan Sakit)':(izinMap[sntId]?'Sistem (Perizinan)':'Sistem (Auto)');
+            // Prioritas: uzur (jika sholat) > sakit > izin > none
+            let _st='none', _pid=null, _oleh='Sistem (Auto)';
+            if (isShalatK && uzurMapAutoK[sntId]) {
+              _st='uzur'; _oleh='Sistem (Uzur aktif)';
+            } else if (sakitMapAutoK[sntId]) {
+              _st='sakit'; _oleh='Sistem (Catatan Sakit)';
+            } else if (izinMap[sntId]) {
+              _st='izin'; _pid=izinMap[sntId]; _oleh='Sistem (Perizinan)';
+            }
             await DB.p('absensi',{id:absDetId(sid,sntId),sesiId:sid,sntId,status:_st,perizinanId:_pid,oleh:_oleh,updatedAt:Date.now()});
           }
         }
+        // ── AUDIT v3d FIX: Double-check uzur/sakit/izin sebelum set alpha ──
         const absNow=(await DB.ga('absensi')).filter(a=>a.sesiId===sid&&a.status==='none');
         for(const a of absNow){
-          a.status='alpha';a.oleh='Sistem (Auto \u2014 waktu habis)';a.updatedAt=Date.now();
+          const sntId=a.sntId;
+          let finalStatus='alpha';
+          let finalOleh='Sistem (Auto \u2014 waktu habis)';
+          let finalPid=null;
+          if (isShalatK && uzurMapAutoK[sntId]) {
+            finalStatus='uzur'; finalOleh='Sistem (Uzur aktif \u2014 auto-lock)';
+          } else if (sakitMapAutoK[sntId]) {
+            finalStatus='sakit'; finalOleh='Sistem (Catatan Sakit \u2014 auto-lock)';
+          } else if (izinMap[sntId]) {
+            finalStatus='izin'; finalOleh='Sistem (Perizinan \u2014 auto-lock)'; finalPid=izinMap[sntId];
+          }
+          a.status=finalStatus; a.oleh=finalOleh; a.updatedAt=Date.now();
+          if (finalPid) a.perizinanId=finalPid;
           await DB.p('absensi',a);
-          alphaCount++;
-          if(!pelByAbs[a.id]){
-            const sn=sntMap[a.sntId];
-            const newPel={id:uid(),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
-              kgId:k.id,kgNama:k.nama||'-',skId:null,skNama:'',
-              tanggal:today,
-              status:'belum',catatanHukuman:'',fotoHukuman:'',
-              pelanggaranJenis:'Alpha',
-              autoSource:'waktu_habis',
-              createdAt:Date.now(),updatedAt:Date.now()};
-            await DB.p('pelanggaran',newPel);
-            pelByAbs[a.id]=newPel;
-            pelCount++;
+          if (finalStatus === 'alpha') {
+            alphaCount++;
+            if(!pelByAbs[a.id]){
+              const sn=sntMap[a.sntId];
+              const newPel={id:uid(),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
+                kgId:k.id,kgNama:k.nama||'-',skId:null,skNama:'',
+                tanggal:today,
+                status:'belum',catatanHukuman:'',fotoHukuman:'',
+                pelanggaranJenis:'Alpha',
+                autoSource:'waktu_habis',
+                createdAt:Date.now(),updatedAt:Date.now()};
+              await DB.p('pelanggaran',newPel);
+              pelByAbs[a.id]=newPel;
+              pelCount++;
+            }
           }
         }
         sx.locked=true;sx.status='selesai';sx.updatedAt=Date.now();
@@ -3099,6 +3167,7 @@ const App={
         <div id="snt-empty" style="display:none"><div class="empty"><div class="es">Tidak ada santri.</div></div></div>
       </div>
     </div>
+    <!-- AUDIT v3d: Virtualisasi list santri diaktifkan via _virtualizeSntList() setelah render -->
     <!-- FAB Tambah/Hapus Santri -->
     <div id="snt-fab-overlay" onclick="App._closeSntFab()" style="position:fixed;inset:0;z-index:299;background:rgba(0,0,0,.3);display:none"></div>
     <div id="snt-fab-menu" style="position:fixed;right:16px;bottom:148px;z-index:301;background:var(--bg);border:1.5px solid var(--sub);border-radius:var(--r4);box-shadow:0 16px 44px rgba(0,0,0,.22);overflow:hidden;display:none;min-width:200px;backdrop-filter:blur(22px)">
@@ -3107,6 +3176,43 @@ const App={
       <div onclick="App._closeSntFab();App.renderSnt(S.sntKamar,true)" style="padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;font-size:12px;font-weight:600;color:#ef4444"><div style="width:28px;height:28px;border-radius:9px;background:rgba(239,68,68,.1);color:#ef4444;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">\u00D7</div>Hapus Santri</div>
     </div>
     <button onclick="App._toggleSntFab()" title="Aksi Santri" style="position:fixed;right:16px;bottom:88px;z-index:300;width:54px;height:54px;border-radius:50%;background:var(--grad);color:#fff;font-size:26px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px rgba(13,181,127,.45),0 2px 0 rgba(255,255,255,.3) inset;transition:transform .18s var(--ease)">+</button>`;
+    // AUDIT v3d: Aktifkan virtualisasi setelah render selesai
+    setTimeout(()=>this._virtualizeSntList(), 50);
+  },
+  // AUDIT v3d: Virtualisasi list santri — hanya tampilkan visible items
+  _sntVirtState: null,
+  _virtualizeSntList(){
+    const items = document.querySelectorAll('#snt-list-items [data-sntrow]');
+    if (items.length <= 50) return; // threshold: hanya virtualisasi jika > 50 item
+    const container = document.getElementById('app');
+    if (!container) return;
+    // Cleanup listener lama jika ada
+    if (this._sntVirtState) {
+      this._sntVirtState.container.removeEventListener('scroll', this._sntVirtState.handler);
+    }
+    const itemHeight = 70; // approx tinggi per item (px)
+    const buffer = 5;
+    const updateVisibility = () => {
+      const scrollTop = container.scrollTop;
+      const viewportH = container.clientHeight;
+      const startIdx = Math.max(0, Math.floor(scrollTop / itemHeight) - buffer);
+      const endIdx = Math.min(items.length, Math.ceil((scrollTop + viewportH) / itemHeight) + buffer);
+      for (let i = 0; i < items.length; i++){
+        items[i].style.display = (i >= startIdx && i < endIdx) ? '' : 'none';
+      }
+    };
+    // Throttled scroll
+    let ticking = false;
+    const handler = () => {
+      if (!ticking){
+        requestAnimationFrame(() => { updateVisibility(); ticking = false; });
+        ticking = true;
+      }
+    };
+    container.addEventListener('scroll', handler, {passive: true});
+    this._sntVirtState = { container, handler };
+    updateVisibility();
+    console.log('[VirtualList] Santri: ' + items.length + ' items virtualized');
   },
   _sntTogSel(id,el){
     if(!S._sntSelected)S._sntSelected=new Set();
@@ -5183,8 +5289,9 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
         <div class="sc3">
           <div class="sr2" onclick="App.importSnt()"><div class="si4">&#x2193;</div><div class="st3"><div class="sl3">Import Santri</div><div class="sv">Massal via teks/CSV</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="App._syncNfcAssalam()"><div class="si4" style="background:rgba(13,181,127,.12);border-color:rgba(13,181,127,.22);color:var(--a1)">\uD83D\uDCE1</div><div class="st3"><div class="sl3">Sinkron NFC UID Assalam</div><div class="sv">Cocokkan NFC UID dari data scan ke santri existing (by nama/NIS)</div></div><div class="sa">\u2192</div></div>
-          <div class="sr2" onclick="Exp.showExportMenu()"><div class="si4">&#x2191;</div><div class="st3"><div class="sl3">Export Data Lengkap</div><div class="sv">Pilih: Santri / Kegiatan / Perizinan & Sakit</div></div><div class="sa">\u2192</div></div>
-          <div class="sr2" onclick="Exp.backupJSON()"><div class="si4">&#x1F4BE;</div><div class="st3"><div class="sl3">Export Backup JSON (Semua)</div><div class="sv">Unduh semua data untuk backup/restore</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="Exp.showExportMenu()"><div class="si4">&#x2191;</div><div class="st3"><div class="sl3">Export Data Lengkap (JSON)</div><div class="sv">Pilih: Santri / Kegiatan / Perizinan & Sakit</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="Exp.showFormatExportMenu()"><div class="si4" style="background:rgba(22,163,74,.12);color:#16a34a">&#x1F4CA;</div><div class="st3"><div class="sl3">Export ke Excel/CSV/Word/PDF</div><div class="sv">Santri, Absensi, Perizinan, Pelanggaran, Sakit</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="Exp.backupJSON()"><div class="si4">&#x1F4BE;</div><div class="st3"><div class="sl3">Backup JSON (Semua Data)</div><div class="sv">Unduh semua data untuk backup/restore</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="Exp.showImportBackup()"><div class="si4">&#x2B06;</div><div class="st3"><div class="sl3">Import / Pulihkan Backup</div><div class="sv">Kembalikan dari file JSON</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="App.showAudit()"><div class="si4">&#x2261;</div><div class="st3"><div class="sl3">Audit Log</div></div><div class="sa">\u2192</div></div>
         </div>
@@ -7817,11 +7924,290 @@ const Tmpl={
 };
 
 const Exp={
+  // ── AUDIT v3d: Export Excel/CSV/Word/PDF generik ──
+  // Helper untuk export array of objects ke berbagai format.
+  // Dipakai oleh semua tombol laporan supaya konsisten.
+
+  // Export array ke CSV (bisa dibuka Excel/Sheets)
+  _toCSV(rows, headers) {
+    if (!rows || !rows.length) return '';
+    const cols = headers || Object.keys(rows[0]);
+    const escape = v => {
+      if (v === null || v === undefined) return '';
+      const s = String(v).replace(/"/g, '""');
+      return /[",\n\r]/.test(s) ? `"${s}"` : s;
+    };
+    const lines = [cols.join(',')];
+    for (const row of rows) {
+      lines.push(cols.map(c => escape(row[c])).join(','));
+    }
+    return lines.join('\n');
+  },
+
+  // Download text sebagai file
+  _download(filename, content, mime) {
+    const blob = new Blob(['\uFEFF' + content], { type: mime || 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  // Export Excel (.xls via HTML table trick — Excel buka native)
+  exportExcel(filename, rows, headers, sheetName) {
+    if (!rows || !rows.length) { T('⚠️ Tidak ada data untuk diexport'); return; }
+    const cols = headers || Object.keys(rows[0]);
+    const safeSheet = (sheetName || 'Sheet1').replace(/[^\w \-]/g, '').slice(0, 28) || 'Sheet1';
+    const headerHtml = cols.map(c => `<th style="background:#d4f7e8;font-weight:bold">${esc(c)}</th>`).join('');
+    const bodyHtml = rows.map(r => `<tr>${cols.map(c => `<td>${esc(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${safeSheet}</title>
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>${safeSheet}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>table{border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:10pt} td,th{border:1px solid #ccc;padding:3pt 6pt}</style>
+</head><body><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></body></html>`;
+    this._download(filename.endsWith('.xls') ? filename : filename + '.xls', html, 'application/vnd.ms-excel');
+    T(`✅ Excel diunduh: ${rows.length} baris`);
+  },
+
+  // Export CSV
+  exportCSV(filename, rows, headers) {
+    if (!rows || !rows.length) { T('⚠️ Tidak ada data untuk diexport'); return; }
+    const csv = this._toCSV(rows, headers);
+    this._download(filename.endsWith('.csv') ? filename : filename + '.csv', csv, 'text/csv;charset=utf-8');
+    T(`✅ CSV diunduh: ${rows.length} baris`);
+  },
+
+  // Export Word (.doc via HTML trick)
+  exportWord(filename, title, rows, headers) {
+    if (!rows || !rows.length) { T('⚠️ Tidak ada data untuk diexport'); return; }
+    const cols = headers || Object.keys(rows[0]);
+    const headerHtml = cols.map(c => `<th>${esc(c)}</th>`).join('');
+    const bodyHtml = rows.map(r => `<tr>${cols.map(c => `<td>${esc(r[c] ?? '')}</td>`).join('')}</tr>`).join('');
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${esc(title)}</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt} h1{font-size:16pt} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ccc;padding:4pt 6pt} th{background:#d4f7e8}</style>
+</head><body><h1>${esc(title)}</h1><p>Tanggal export: ${new Date().toLocaleString('id-ID')}</p><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></body></html>`;
+    this._download(filename.endsWith('.doc') ? filename : filename + '.doc', html, 'application/msword');
+    T(`✅ Word diunduh: ${rows.length} baris`);
+  },
+
+  // Export PDF (pakai jspdf yang sudah di-load)
+  exportPDF(filename, title, rows, headers) {
+    if (!rows || !rows.length) { T('⚠️ Tidak ada data untuk diexport'); return; }
+    if (typeof window.jspdf === 'undefined') { T('❌ Library PDF belum termuat'); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const cols = headers || Object.keys(rows[0]);
+    // Title
+    doc.setFontSize(14);
+    doc.text(title, 14, 15);
+    doc.setFontSize(9);
+    doc.text('Export: ' + new Date().toLocaleString('id-ID'), 14, 21);
+    // Table manual (simple)
+    const pageW = doc.internal.pageSize.getWidth() - 28;
+    const colW = pageW / cols.length;
+    let y = 28;
+    // Header
+    doc.setFillColor(13, 181, 127);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
+    doc.setFillColor(212, 247, 232);
+    doc.setTextColor(22, 33, 26);
+    cols.forEach((c, i) => {
+      doc.rect(14 + i * colW, y - 5, colW, 6, 'F');
+      doc.text(String(c).slice(0, 20), 14 + i * colW + 1, y - 1);
+    });
+    y += 6;
+    // Rows
+    doc.setFontSize(7);
+    rows.forEach((r, ri) => {
+      if (y > doc.internal.pageSize.getHeight() - 15) {
+        doc.addPage();
+        y = 20;
+      }
+      cols.forEach((c, i) => {
+        const val = String(r[c] ?? '').slice(0, 25);
+        doc.text(val, 14 + i * colW + 1, y);
+      });
+      y += 5;
+    });
+    doc.save(filename.endsWith('.pdf') ? filename : filename + '.pdf');
+    T(`✅ PDF diunduh: ${rows.length} baris`);
+  },
+
+  // Menu export generik — tampilkan pilihan format
+  showFormatMenu(title, rows, headers, filenameBase) {
+    if (!rows || !rows.length) { T('⚠️ Tidak ada data untuk diexport'); return; }
+    OS(`<div class="sh">📤 Export: ${esc(title)}</div><div class="sb" style="padding-bottom:70px">
+      <div style="font-size:12px;color:var(--t3);margin-bottom:14px">${rows.length} baris data siap diexport. Pilih format:</div>
+      <div class="sc3">
+        <div class="sr2" onclick="Exp.exportExcel('${filenameBase}', Exp._currentExportRows, Exp._currentExportHeaders, '${esc(title)}'); CS()">
+          <div class="si4" style="background:rgba(22,163,74,.12);color:#16a34a">📊</div>
+          <div class="st3"><div class="sl3">Excel (.xls)</div><div class="sv">Buka di Microsoft Excel / Google Sheets</div></div>
+          <div class="sa">→</div>
+        </div>
+        <div class="sr2" onclick="Exp.exportCSV('${filenameBase}', Exp._currentExportRows, Exp._currentExportHeaders); CS()">
+          <div class="si4" style="background:rgba(37,99,235,.12);color:#2563eb">📄</div>
+          <div class="st3"><div class="sl3">CSV (.csv)</div><div class="sv">Format universal, kompatibel semua spreadsheet</div></div>
+          <div class="sa">→</div>
+        </div>
+        <div class="sr2" onclick="Exp.exportWord('${filenameBase}', '${esc(title)}', Exp._currentExportRows, Exp._currentExportHeaders); CS()">
+          <div class="si4" style="background:rgba(37,99,235,.12);color:#2563eb">📝</div>
+          <div class="st3"><div class="sl3">Word (.doc)</div><div class="sv">Dokumen Microsoft Word</div></div>
+          <div class="sa">→</div>
+        </div>
+        <div class="sr2" onclick="Exp.exportPDF('${filenameBase}', '${esc(title)}', Exp._currentExportRows, Exp._currentExportHeaders); CS()">
+          <div class="si4" style="background:rgba(220,38,38,.12);color:#dc2626">📕</div>
+          <div class="st3"><div class="sl3">PDF (.pdf)</div><div class="sv">Dokumen PDF — siap print</div></div>
+          <div class="sa">→</div>
+        </div>
+      </div>
+    </div>`);
+    // Simpan rows ke global supaya onclick bisa akses
+    this._currentExportRows = rows;
+    this._currentExportHeaders = headers;
+  },
+
+  // Export santri ke format Excel/CSV/Word/PDF (bukan JSON)
+  async exportSantriFormat() {
+    try {
+      T('⏳ Menyiapkan data santri...', 2000);
+      const [santri, kamar] = await Promise.all([DB.ga('santri'), DB.ga('kamar')]);
+      const kamarMap = {};
+      kamar.forEach(k => { kamarMap[k.id] = k.nama; });
+      const rows = santri.map(s => ({
+        Nama: s.nama || '',
+        NIS: s.nis || '',
+        Kamar: s.kamar || kamarMap[s.kamarId] || '',
+        NFC_UID: s.nfcUid || '',
+        Aktif: s.aktif ? 'Ya' : 'Tidak',
+        Dibuat: s.createdAt ? new Date(s.createdAt).toLocaleDateString('id-ID') : '',
+      }));
+      CS();
+      this.showFormatMenu('Data Santri', rows, null, 'santri-' + _todayLocal());
+    } catch(e) {
+      T('❌ Gagal: ' + (e.message || e), 4000);
+    }
+  },
+
+  // Export absensi ke format Excel/CSV/Word/PDF
+  async exportAbsensiFormat(kgId, date) {
+    try {
+      T('⏳ Menyiapkan data absensi...', 2000);
+      const [ses, abs, snt, kg, sk] = await Promise.all([
+        DB.ga('sesi'), DB.ga('absensi'), DB.ga('santri'),
+        DB.ga('kegiatan'), DB.ga('subKeg')
+      ]);
+      const kgM = {}, sntM = {}, skM = {};
+      kg.forEach(k => { kgM[k.id] = k.nama; });
+      snt.forEach(s => { sntM[s.id] = s; });
+      sk.forEach(s => { skM[s.id] = s.nama; });
+      const sl = ses.filter(x => (!date || x.tanggal === date) && (!kgId || x.kgId === kgId));
+      const rows = [];
+      for (const sx of sl) {
+        const k = kgM[sx.kgId] || '-';
+        const skNm = sx.skId ? (skM[sx.skId] || '-') : '-';
+        const al = abs.filter(a => a.sesiId === sx.id);
+        for (const a of al) {
+          const s = sntM[a.sntId] || {};
+          rows.push({
+            Tanggal: sx.tanggal,
+            Kegiatan: k,
+            'Sub Kegiatan': skNm,
+            Nama: s.nama || '-',
+            Kamar: s.kamar || '-',
+            Status: a.status || 'none',
+            Pengabsen: a.oleh || '-',
+          });
+        }
+      }
+      CS();
+      this.showFormatMenu('Absensi', rows, null, 'absensi-' + (date || 'all') + '-' + _todayLocal());
+    } catch(e) {
+      T('❌ Gagal: ' + (e.message || e), 4000);
+    }
+  },
+
+  // Export perizinan ke format Excel/CSV/Word/PDF
+  async exportPerizinanFormat() {
+    try {
+      T('⏳ Menyiapkan data perizinan...', 2000);
+      const [per, snt] = await Promise.all([DB.ga('perizinan'), DB.ga('santri')]);
+      const sntMap = {};
+      snt.forEach(s => { sntMap[s.id] = s.nama; });
+      const rows = per.map(p => ({
+        Santri: sntMap[p.sntId] || '-',
+        Jenis: p.jenis || '',
+        TglMulai: p.tglMulai || '',
+        TglSelesai: p.tglSelesai || '',
+        Status: p.status || '',
+        Keterangan: p.keterangan || '',
+        Wali: p.namaWali || '',
+        Penginput: p.oleh || '-',
+      }));
+      CS();
+      this.showFormatMenu('Perizinan', rows, null, 'perizinan-' + _todayLocal());
+    } catch(e) {
+      T('❌ Gagal: ' + (e.message || e), 4000);
+    }
+  },
+
+  // Export pelanggaran ke format Excel/CSV/Word/PDF
+  async exportPelanggaranFormat() {
+    try {
+      T('⏳ Menyiapkan data pelanggaran...', 2000);
+      const [pel, snt, kg, sk] = await Promise.all([
+        DB.ga('pelanggaran'), DB.ga('santri'), DB.ga('kegiatan'), DB.ga('subKeg')
+      ]);
+      const sntMap = {}, kgMap = {}, skMap = {};
+      snt.forEach(s => { sntMap[s.id] = s.nama; });
+      kg.forEach(k => { kgMap[k.id] = k.nama; });
+      sk.forEach(s => { skMap[s.id] = s.nama; });
+      const rows = pel.map(p => ({
+        Santri: sntMap[p.sntId] || p.sntNama || '-',
+        Jenis: p.pelanggaranJenis || '',
+        Tipe: p.tipe || '',
+        Kegiatan: kgMap[p.kgId] || p.kgNama || '-',
+        'Sub Kegiatan': skMap[p.skId] || p.skNama || '-',
+        Tanggal: p.tanggal || '',
+        Status: p.status || '',
+        Catatan: p.catatanHukuman || '',
+        Penginput: p.oleh || '-',
+      }));
+      CS();
+      this.showFormatMenu('Pelanggaran', rows, null, 'pelanggaran-' + _todayLocal());
+    } catch(e) {
+      T('❌ Gagal: ' + (e.message || e), 4000);
+    }
+  },
+
+  // Export catatan sakit ke format Excel/CSV/Word/PDF
+  async exportSakitFormat() {
+    try {
+      T('⏳ Menyiapkan data catatan sakit...', 2000);
+      const [sakit, snt] = await Promise.all([DB.ga('catatanSakit'), DB.ga('santri')]);
+      const sntMap = {};
+      snt.forEach(s => { sntMap[s.id] = s.nama; });
+      const rows = sakit.map(s => ({
+        Santri: sntMap[s.sntId] || '-',
+        TglMulai: s.tglMulai || '',
+        Diagnosis: s.diagnosis || '',
+        Penanganan: s.penanganan || '',
+        Status: s.status === 'belum_sembuh' ? 'Belum Sembuh' : (s.status === 'sembuh' ? 'Sembuh' : s.status || ''),
+        SembuhPada: s.sembuhAt ? new Date(s.sembuhAt).toLocaleDateString('id-ID') : '',
+        Penginput: s.oleh || '-',
+      }));
+      CS();
+      this.showFormatMenu('Catatan Sakit', rows, null, 'catatan-sakit-' + _todayLocal());
+    } catch(e) {
+      T('❌ Gagal: ' + (e.message || e), 4000);
+    }
+  },
+
   // ── AUDIT v3: Export menu dengan 3 opsi terpisah ──
-  // User request: "tambahkan pilihan, export seluruh data santri secara lengkap,
-  // atau kegiatan sub kegiatan dan anggotanya, atau export data perizinan dan sakit"
   showExportMenu(){
-    OS(`<div class="sh">📤 Export Data</div><div class="sb" style="padding-bottom:70px">
+    OS(`<div class="sh">📤 Export Data (JSON)</div><div class="sb" style="padding-bottom:70px">
       <div style="font-size:12px;color:var(--t3);margin-bottom:14px;line-height:1.5">Pilih jenis data yang ingin diexport. Format JSON — bisa dibuka di Excel atau di-restore kembali via menu Import Backup (pilih file JSON).</div>
 
       <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="Exp.exportSantriLengkap()">
@@ -7858,6 +8244,68 @@ const Exp={
       </div>
 
       <div style="font-size:10px;color:var(--t4);margin-top:14px;line-height:1.5;text-align:center">💡 Untuk export SEMUA data (termasuk settings, users, audit log), gunakan "Export Backup JSON (Semua)" di atas.</div>
+    </div>`);
+  },
+
+  // ── AUDIT v3d: Menu export format Excel/CSV/Word/PDF ──
+  showFormatExportMenu(){
+    OS(`<div class="sh">📊 Export ke Excel/CSV/Word/PDF</div><div class="sb" style="padding-bottom:70px">
+      <div style="font-size:12px;color:var(--t3);margin-bottom:14px;line-height:1.5">Pilih jenis data. Setiap pilihan akan menampilkan menu format (Excel/CSV/Word/PDF).</div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="CS();Exp.exportSantriFormat()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(13,181,127,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">👥</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Data Santri</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Nama, NIS, kamar, NFC UID, status aktif</div>
+          </div>
+          <div style="color:var(--a1);font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="CS();Exp.exportAbsensiFormat()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(37,99,235,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">✅</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Data Absensi</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Semua sesi & status absensi (semua tanggal)</div>
+          </div>
+          <div style="color:var(--a1);font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="CS();Exp.exportPerizinanFormat()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📝</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Data Perizinan</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Izin pulang, dispensasi, status, keterangan</div>
+          </div>
+          <div style="color:var(--a1);font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="CS();Exp.exportPelanggaranFormat()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⚠️</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Data Pelanggaran</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Alpha, terlambat, jenis, status hukuman</div>
+          </div>
+          <div style="color:var(--a1);font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="CS();Exp.exportSakitFormat()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🤒</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Data Catatan Sakit</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Diagnosis, penanganan, status sembuh</div>
+          </div>
+          <div style="color:var(--a1);font-size:18px">→</div>
+        </div>
+      </div>
     </div>`);
   },
 

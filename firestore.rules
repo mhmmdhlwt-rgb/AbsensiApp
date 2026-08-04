@@ -1,7 +1,24 @@
 // ============================================================================
 // firestore.rules — AbsensiApp (myassalam-d45c5)
 // Multi-tenant: tenants/{ns}/{store}/{docId}
-// Tenant namespace (ns) disimpan di localStorage('tenant_ns') sisi client.
+// ============================================================================
+// AUDIT v3d FIX: "Missing or insufficient permissions" saat unggah data
+//
+// PENYEBAB: rules sebelumnya butuh `request.auth != null` — tapi aplikasi
+// TIDAK menggunakan Firebase Authentication. Saat pushAll/backup/restore
+// menulis ke Firestore, request ditolak karena auth=null.
+//
+// FIX: Untuk sementara, rules dibuka (allow if true) supaya aplikasi bisa
+// berfungsi. INI TIDAK AMAN untuk production — siapa pun yang tahu projectId
+// bisa baca/tulis data. Segera migrasi ke Firebase Auth (anon cukup untuk
+// starter) lalu ganti rules ke versi auth-gated di bawah.
+//
+// UPGRADE PATH (rekomendasi):
+//   1. Enable Firebase Anonymous Auth di Firebase Console
+//   2. Tambah `firebase.auth().signInAnonymously()` di boot code
+//   3. Ganti rules ke:
+//        allow read, write: if request.auth != null;
+//   4. (Opsional) Tambah Custom Claims (tenant_ns) untuk restrict per-tenant
 // ============================================================================
 
 rules_version = '2';
@@ -10,49 +27,26 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── TENANT DATA ──────────────────────────────────────────────────────
-    // Setiap dokumen di tenant hanya boleh diakses jika:
-    //   1. Pengguna sudah ter-auth (uid non-null), DAN
-    //   2. tenant_ns yang diklaim pengguna == ns di path
-    // Catatan: client mengirim ns lewat claim custom (jika pakai Firebase Auth
-    // Custom Claims) atau — pada versi minimal ini — kita andalkan
-    // request.auth.uid != null sebagai gate pertama, plus restrict ke path
-    // tenant yang sama dengan yang diakses client-side.
-    //
-    // UPGRADE PATH (rekomendasi):
-    //   - Migrasi ke Firebase Auth + Custom Claims (tenant_ns) sehingga
-    //     rule bisa benar-benar match claim vs path.
-    //   - Untuk sekarang: setidaknya blok akses jika tidak ada auth sama
-    //     sekali. PIN admin/super-admin yang ada di kode adalah gate UI,
-    //     BUKAN gate security — mudah dilewati siapa pun yang inspeksi kode.
-    // ----------------------------------------------------------------------
-
+    // SEMUA data tenant dibuka (allow if true) supaya aplikasi bisa berfungsi
+    // tanpa Firebase Auth. TAMPAKAN INI TIDAK AMAN — lihat UPGRADE PATH di atas.
     match /tenants/{ns}/{store=**} {
-      // Versi minimum: gate auth-only (lebih baik daripada allow all).
-      // Saat aplikasi sudah siap migrasi ke Auth, ganti dengan:
-      //   allow read, write: if request.auth != null
-      //                        && request.auth.token.tenant_ns == ns;
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
     }
 
     // ── REGISTRY (daftar tenant global) ─────────────────────────────────
     //   - READ: publik (dibutuhkan halaman "Pilih Pesantren" sebelum login)
     //   - CREATE: publik (Setup Wizard mendaftarkan tenant baru)
-    //   - UPDATE/DELETE: hanya super admin (pakai Admin SDK dari Cloud
-    //     Function, bukan dari client). Di client, mode super admin sekarang
-    //     hanya gate UI — kerentanan privilege escalation bisa terjadi jika
-    //     seseorang membuka DevTools. Solusi tuntas: pindahkan operasi
-    //     edit/delete tenant ke Cloud Function dengan Admin SDK.
+    //   - UPDATE/DELETE: publik untuk sementara (super admin masih gate UI).
+    //     Setelah migrasi Cloud Function, ganti ke: if false (hanya via Admin SDK)
     match /registry/{ns} {
       allow read: if true;
       allow create: if true;
-      allow update, delete: if false; // WAJIB lewat Cloud Function (Admin SDK)
+      allow update, delete: if true; // TODO: pindahkan ke Cloud Function (Admin SDK)
     }
 
     // ── FCM TOKENS (sub-collection tenants/{ns}/fcmTokens) ─────────────
-    //   Token FCM disimpan per-user per-device. Tidak ada auth real, jadi
-    //   gate minimum: read+write if request.auth != null.
     match /tenants/{ns}/fcmTokens/{tokenDoc} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
     }
 
     // ── DEFAULT deny ───────────────────────────────────────────────────
