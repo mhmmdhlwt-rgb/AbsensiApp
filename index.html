@@ -909,7 +909,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
       <div class="ph-acts">
         <button class="ib" id="theme-btn" onclick="toggleTheme()">&#x2600;</button>
         <!-- AUDIT v3: Tombol Refresh — pull cloud untuk halaman aktif (bypass cache) -->
-        <button class="ib" id="refresh-btn" onclick="App.refreshCurrentPage()" title="Muat ulang data dari cloud">&#x21BB;</button>
+        <button class="ib" id="refresh-btn" onclick="App.refreshCurrentPage()" title="Muat ulang data dari cloud (klik singkat). Long-press untuk sync SEMUA data" oncontextmenu="App._refreshLongPress(); return false" ontouchstart="App._refreshLpStart()" ontouchend="App._refreshLpCancel()" ontouchmove="App._refreshLpCancel()" onmousedown="App._refreshLpStart()" onmouseup="App._refreshLpCancel()" onmouseleave="App._refreshLpCancel()" style="user-select:none;-webkit-user-select:none">&#x21BB;</button>
         <div class="chat-btn-wrap"><button class="ib" id="chat-btn" onclick="App.nav('chat')" title="Chat &amp; Notifikasi">&#x1F4AC;</button><div id="chat-badge"></div></div><button class="ib" id="search-btn" style="display:none" onclick="App.search()">&#x2315;</button>
         <button class="ib" onclick="App.nav('set')" title="Pengaturan">☰</button>
         <button class="ib" id="ub" onclick="App.userMenu()" style="font-size:11px;font-weight:800">-</button>
@@ -967,12 +967,84 @@ const DB=(()=>{
   const ST=['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','settings','users','kamar','catatanSantri','pelanggaran','peraturan','kalam','perizinan','uzur','catatanSakit'];
   function open(){return new Promise((res,rej)=>{if(_d)return res(_d);const r=indexedDB.open(N,V);r.onupgradeneeded=e=>{const d=e.target.result;ST.forEach(s=>{if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:'id'})})};r.onsuccess=e=>{_d=e.target.result;res(_d)};r.onerror=e=>rej(e.target.error)})}
   const tx=(s,m='readonly')=>_d.transaction(s,m).objectStore(s);
-  async function ga(s){await open();return new Promise((res,rej)=>{const r=tx(s).getAll();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
-  async function g(s,id){await open();return new Promise((res,rej)=>{const r=tx(s).get(id);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
-  async function p(s,o){await open();return new Promise((res,rej)=>{const r=tx(s,'readwrite').put(o);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
-  async function d(s,id){await open();return new Promise((res,rej)=>{const r=tx(s,'readwrite').delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
-  async function cl(s){await open();return new Promise((res,rej)=>{const r=tx(s,'readwrite').clear();r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
-  return{open,ga,g,p,d,cl};
+  // ── AUDIT v3f: MEMORY CACHE untuk data jarang berubah ──
+  // Cache in-memory untuk store yang jarang berubah: santri, kamar, kegiatan,
+  // subKeg, peraturan, kalam, settings, users, anggota. Setiap DB.ga() untuk
+  // store ini akan return cache jika masih valid (TTL 60 detik), bukan baca
+  // IndexedDB ulang. Cache di-invalidate saat DB.p/DB.d dipanggil.
+  const _CACHE_TTL = 60 * 1000; // 60 detik
+  const _CACHE_STORES = new Set(['santri','kamar','kegiatan','subKeg','peraturan','kalam','settings','users','anggota']);
+  const _memCache = {}; // { store: { data: [...], ts: number } }
+  async function ga(s){
+    // Cek memory cache dulu untuk store yang jarang berubah
+    if (_CACHE_STORES.has(s)) {
+      const c = _memCache[s];
+      if (c && (Date.now() - c.ts) < _CACHE_TTL) {
+        return c.data;
+      }
+    }
+    await open();
+    return new Promise((res,rej)=>{
+      const r=tx(s).getAll();
+      r.onsuccess=()=>{
+        // Simpan ke memory cache jika store termasuk yang di-cache
+        if (_CACHE_STORES.has(s)) {
+          _memCache[s] = { data: r.result, ts: Date.now() };
+        }
+        res(r.result);
+      };
+      r.onerror=()=>rej(r.error);
+    });
+  }
+  async function g(s,id){
+    // Untuk single doc, cek memory cache jika ada
+    if (_CACHE_STORES.has(s) && _memCache[s]) {
+      const found = _memCache[s].data.find(x => x.id === id);
+      if (found) return found;
+    }
+    await open();
+    return new Promise((res,rej)=>{const r=tx(s).get(id);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+  }
+  async function p(s,o){
+    await open();
+    return new Promise((res,rej)=>{
+      const r=tx(s,'readwrite').put(o);
+      r.onsuccess=()=>{
+        // Invalidate cache untuk store ini (data berubah)
+        if (_CACHE_STORES.has(s)) delete _memCache[s];
+        res(r.result);
+      };
+      r.onerror=()=>rej(r.error);
+    });
+  }
+  async function d(s,id){
+    await open();
+    return new Promise((res,rej)=>{
+      const r=tx(s,'readwrite').delete(id);
+      r.onsuccess=()=>{
+        if (_CACHE_STORES.has(s)) delete _memCache[s];
+        res();
+      };
+      r.onerror=()=>rej(r.error);
+    });
+  }
+  async function cl(s){
+    await open();
+    return new Promise((res,rej)=>{
+      const r=tx(s,'readwrite').clear();
+      r.onsuccess=()=>{
+        if (_CACHE_STORES.has(s)) delete _memCache[s];
+        res();
+      };
+      r.onerror=()=>rej(r.error);
+    });
+  }
+  // Helper untuk invalidate cache manual (dipanggil setelah pull dari cloud)
+  function invalidateCache(s){
+    if (s) delete _memCache[s];
+    else Object.keys(_memCache).forEach(k => delete _memCache[k]);
+  }
+  return{open,ga,g,p,d,cl,invalidateCache};
 })();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
 // BUG FIX (root cause of "bentrok data antar device" & jumlah santri di
@@ -1755,7 +1827,21 @@ const App={
   // ── AUDIT v3: Refresh halaman aktif dari cloud (bypass cache) ──
   // Dipanggil oleh tombol Refresh di header. Invalidate cache untuk store
   // yang relevan dengan halaman aktif, lalu pull cloud + re-render.
-  async refreshCurrentPage() {
+  // AUDIT v3e: Long-press tombol Refresh → "Sync Semua" (pull semua store)
+  _refreshLpTimer: null,
+  _refreshLpStart(){
+    clearTimeout(this._refreshLpTimer);
+    this._refreshLpTimer = setTimeout(() => { this._refreshLongPress(); }, 700);
+  },
+  _refreshLpCancel(){ clearTimeout(this._refreshLpTimer); },
+  _refreshLongPress(){
+    // Long-press detected — tampilkan konfirmasi sync semua
+    OS(`<div class="cw"><div class="ci3">🔄</div><div class="ct3">Sync Semua Data?</div>
+      <div class="cs3">Tarik SEMUA data dari cloud. Gunakan ini jika data di device lain belum muncul di device ini (misal setelah import backup di device lain).</div>
+      <div class="cbs"><button class="cc" onclick="CS()">Batal</button>
+      <button class="co" style="background:var(--grad)" onclick="CS();App.refreshCurrentPage(true)">Sync Semua</button></div></div>`);
+  },
+  async refreshCurrentPage(forceAll=false) {
     if (!navigator.onLine) {
       if (window.T) T('⚠️ Sedang offline. Tidak bisa memuat ulang dari cloud.', 3000);
       return;
@@ -1768,6 +1854,30 @@ const App={
     }
     if (window.T) T('🔄 Memuat ulang data...', 1500);
     const pg = S.page;
+    // AUDIT v3e: Jika forceAll, pull SEMUA store (untuk sync setelah import di device lain)
+    if (forceAll) {
+      if (window.T) T('⏳ Sync semua data dari cloud... jangan tutup aplikasi.', 5000);
+      try {
+        await FBSync.pullAll();
+        // Re-render halaman aktif
+        const renderMap = {
+          dash: () => this.dash(),
+          kg:   () => this.renderKg(),
+          snt:  () => this.renderSnt(),
+          rek:  () => this.renderRek(),
+          pel:  () => this.renderPel(),
+          izn:  () => this.renderIzn(),
+          set:  () => this.renderSet(),
+        };
+        const fn = renderMap[pg];
+        if (fn) await fn();
+        if (window.T) T('✅ Semua data tersinkron!', 3000);
+      } catch(e) {
+        console.warn('[Sync All] error:', e);
+        if (window.T) T('❌ Gagal sync: ' + (e.message||e), 4000);
+      }
+      return;
+    }
     // Mapping halaman → store yang ditampilkan (sinkron dengan NAV_PULL di FBSync)
     const PAGE_STORES = {
       dash: ['sesi','absensi','kegiatan','subKeg','kalam','perizinan','uzur','catatanSakit'],
@@ -4202,28 +4312,14 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
     else await this._rkBulanan();
   },
   async _rkHarian(){
-    // ── FASE 2: Pull Firestore dengan filter tanggal untuk halaman Rekap ──
-    // Sebelumnya, Rekap membaca dari IndexedDB lokal (yang sudah ter-cache
-    // dari pullAll saat login). Tapi untuk tenant dengan akumulasi data 6+
-    // bulan, IndexedDB bisa menyimpan ribuan dokumen absensi yang tidak
-    // akan pernah dilihat user di Rekap bulan ini. Pull dengan where()
-    // memastikan data bulan yang dipilih selalu fresh dari cloud, tanpa
-    // harus pull seluruh koleksi.
-    if (navigator.onLine) {
-      try {
-        const monthPfx = `${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
-        const startOfMonth = `${monthPfx}-01`;
-        const endOfMonth = `${monthPfx}-31`; // over-spec; Firestore string compare works
-        // Pull sesi & absensi untuk bulan ini saja — gunakan where() filter
-        // (composite index sudah dibuat di firebase.json)
-        await _fbFetchFiltered('sesi', 'tanggal', '>=', startOfMonth, 'tanggal', '<=', endOfMonth)
-          .then(items => items.forEach(it => DB.p('sesi', it).catch(()=>{})))
-          .catch(e => console.warn('[Rek] pull sesi bulan error:', e.message));
-        await _fbFetchFiltered('absensi', 'tanggal', '>=', startOfMonth, 'tanggal', '<=', endOfMonth)
-          .then(items => items.forEach(it => DB.p('absensi', it).catch(()=>{})))
-          .catch(e => console.warn('[Rek] pull absensi bulan error:', e.message));
-      } catch(e) { console.warn('[Rek] filtered pull error:', e.message); }
-    }
+    // ── AUDIT v3f: HAPUS pull cloud dari Rekap ──
+    // Sebelumnya: _rkHarian pull sesi & absensi dari cloud dengan where()
+    // tiap buka halaman Rekap = 2 query × ~50 docs × berapa kali buka Rekap.
+    // Itu boros Reads.
+    // Sekarang: andalkan IDB yang sudah ter-cache dari pullAll saat login
+    // + onSnapshot untuk sesi & absensi (realtime). User yang mau data fresh
+    // bisa klik tombol Refresh (long-press untuk sync semua).
+    // Filter data bulan ini dari IDB (instant, zero Reads).
     const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg')]);
     const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
     const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -8693,6 +8789,61 @@ await this._share(t);
           for(const item of data[s]) await DB.p(s,item);
         }
       }
+      // ── AUDIT v3e FIX: Force flush write queue ke cloud ──
+      // Setelah restore lokal, DB.p sudah enqueue write ke FBSync.write queue.
+      // Tapi write queue flush tiap 10 detik (background). Jika user tutup app
+      // sebelum flush, data tidak sampai ke cloud → device B tidak sync.
+      // Sekarang: force flush SEKARANG, tunggu sampai selesai.
+      if (navigator.onLine && FBSync && FBSync._flushWrites) {
+        T('⏳ Mengunggah data ke cloud... jangan tutup aplikasi.', 8000);
+        try {
+          // Force flush — tunggu sampai queue kosong
+          let attempts = 0;
+          while (attempts < 10) {
+            await FBSync._flushWrites();
+            // Cek apakah queue masih ada item (via _dot state)
+            const dot = document.getElementById('sync-dot');
+            if (dot && dot.className === 'ok') break; // queue kosong
+            attempts++;
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          console.log('[Restore] Write queue flushed to cloud');
+        } catch(e) {
+          console.warn('[Restore] flush error:', e);
+        }
+      }
+      // ── AUDIT v3e FIX: Push langsung ke Firestore (bypass write queue) ──
+      // Double-ensure: push semua item langsung ke Firestore via batch write.
+      // Ini mengatasi kasus di mana write queue tidak sempat flush.
+      if (navigator.onLine) {
+        try {
+          for(const s of stores){
+            if(data[s]&&Array.isArray(data[s]) && data[s].length > 0){
+              // Batch write langsung ke Firestore (bukan via DB.p yang enqueue)
+              let batch = _fsDB.batch(), cnt = 0;
+              const col = _fsDB.collection('tenants').doc(_fbNs()).collection(s);
+              for(const item of data[s]){
+                if(item && item.id){
+                  const cleaned = _fsClean(item);
+                  delete cleaned._ts; delete cleaned._etag;
+                  batch.set(col.doc(item.id), cleaned, {merge: false}); // overwrite, bukan merge
+                  if(++cnt >= 450){
+                    await batch.commit();
+                    batch = _fsDB.batch();
+                    cnt = 0;
+                  }
+                }
+              }
+              if(cnt > 0) await batch.commit();
+              console.log('[Restore] Direct push to Firestore:', s, data[s].length, 'docs');
+            }
+          }
+          T('✅ Data tersinkron ke cloud!', 3000);
+        } catch(e) {
+          console.warn('[Restore] direct push error:', e);
+          T('⚠️ Sebagian data mungkin belum sync. Klik tombol Refresh.', 5000);
+        }
+      }
       // Restore chat messages (localStorage)
       if(Array.isArray(data.chat)){
         try{
@@ -9763,11 +9914,12 @@ const ChatModule = {
     }
     // Start poll
     clearInterval(this._pollTimer);
-    // AUDIT v3c: Naikkan dari 5s ke 15s — 3x fewer reads. Chat tidak perlu
-    // real-time tiap 5 detik, 15 detik cukup untuk notifikasi chat baru.
+    // AUDIT v3f: Naikkan dari 15s ke 60s — chat tidak perlu real-time tiap 15 detik.
+    // 60 detik cukup untuk notifikasi chat baru. Hemat 4x Reads.
+    // User yang mau cek manual bisa klik tombol Refresh.
     this._pollTimer = setInterval(()=>{
       if(S.page==='chat') this.loadMessages();
-    }, 15000);
+    }, 60000);
     // Attach swipe listeners after render
     setTimeout(()=>this._attachSwipe(), 200);
   },
@@ -9814,19 +9966,38 @@ const ChatModule = {
     const msgs = await ChatDB.getAll();
     const newMsgs = msgs.filter(m=>m.id!==mid);
     localStorage.setItem('chat_msgs', JSON.stringify(newMsgs));
+    // AUDIT v3f: Invalidate cache + update local cache
+    this._lastChatFetchTs = 0;
+    this._chatMsgCache = newMsgs;
     CS(); await this.loadMessages();
   },
 
+  // AUDIT v3f: Cache chat messages — track lastSeenTs supaya tidak fetch ulang
+  // data yang sama. Hanya fetch pesan baru sejak lastSeen.
+  _lastChatFetchTs: 0,
+  _chatMsgCache: [],
   async loadMessages() {
     const el = document.getElementById('chat-messages');
     if (!el) return;
 
     let msgs = [];
     try {
-      const r = await _fbFetch('/chat');
-      if (r && typeof r==='object') {
-        msgs = Object.values(r).filter(m=>m&&m.ts).sort((a,b)=>a.ts-b.ts);
-        for (const m of msgs) await ChatDB.put(m);
+      // AUDIT v3f: Pakai cache jika masih valid (fresh < 30 detik)
+      // Hindari fetch ulang jika user hanya scroll/switch tab
+      const now = Date.now();
+      const cacheAge = now - (this._lastChatFetchTs || 0);
+      if (this._chatMsgCache.length > 0 && cacheAge < 30000) {
+        msgs = [...this._chatMsgCache].sort((a,b)=>a.ts-b.ts);
+      } else {
+        const r = await _fbFetch('/chat');
+        if (r && typeof r==='object') {
+          msgs = Object.values(r).filter(m=>m&&m.ts).sort((a,b)=>a.ts-b.ts);
+          // Update cache
+          this._chatMsgCache = msgs;
+          this._lastChatFetchTs = now;
+          // Save ke localStorage (bukan IDB) untuk persistence
+          for (const m of msgs) await ChatDB.put(m);
+        }
       }
     } catch(e) {
       msgs = (await ChatDB.getAll()).sort((a,b)=>a.ts-b.ts);
@@ -9933,6 +10104,8 @@ const ChatModule = {
       updatedAt: Date.now()
     };
     await ChatDB.put(msg);
+    // AUDIT v3f: Invalidate cache supaya loadMessages fetch fresh
+    this._lastChatFetchTs = 0;
     try { await _fbFetch('/chat/'+msg.id, 'PUT', msg); } catch(e){}
     await this.loadMessages();
   },
@@ -12057,7 +12230,12 @@ const FBSync = (() => {
       // (pakai fungsi yang sama dengan real-time listener) supaya kegiatan/
       // sub-kegiatan baru atau yang dihapus di device lain langsung terlihat
       // tanpa perlu pindah halaman dulu.
-      if (changed) _scheduleReRender();
+      // AUDIT v3f: Invalidate memory cache untuk store yang baru di-pull
+      // supaya render berikutnya baca data fresh dari IDB (bukan cache lama)
+      if (changed) {
+        stores.forEach(s => { if (typeof DB.invalidateCache === 'function') DB.invalidateCache(s); });
+        _scheduleReRender();
+      }
     } catch(e) {
       console.warn('[FB] pull error:', e.message);
       _dot('err');
@@ -12711,13 +12889,13 @@ const FBSync = (() => {
 let _bgTimer = null;
 function _startBgRefresh() {
   if (_bgTimer) clearInterval(_bgTimer);
-  // AUDIT v3c: Naikkan interval dari 10s ke 30s — chat check + write flush
-  // tidak perlu tiap 10 detik. 30 detik cukup untuk UX yang responsif.
+  // AUDIT v3f: Naikkan dari 30s ke 60s — chat check + write flush tidak perlu tiap 30 detik.
+  // 60 detik cukup. Hemat 2x Reads untuk chat poll.
   _bgTimer = setInterval(() => {
     if (!navigator.onLine || document.hidden) return;
     FBSync._flushWrites();
     _chatBgCheck();
-  }, 30000); // 30 detik (sebelumnya 10 detik)
+  }, 60000); // 60 detik (sebelumnya 30 detik)
   // ── Tombstone sweep tiap 5 menit (ZERO Firestore reads) ──
   if (window._bgSweepTimer) clearInterval(window._bgSweepTimer);
   window._bgSweepTimer = setInterval(() => {
@@ -12729,6 +12907,8 @@ function _startBgRefresh() {
 // AUDIT v3: Jangan pullAll saat visibilitychange (boros Reads).
 // Cukup restart listeners (realtime untuk absensi & sesi) + flush write queue.
 // Pull cloud hanya dilakukan on-demand saat user navigasi atau klik Refresh.
+// AUDIT v3e: Tambah auto-pull halaman aktif supaya data import di device lain
+// langsung muncul saat user kembali ke app.
 document.addEventListener('visibilitychange', async () => {
   if (!document.hidden && navigator.onLine) {
     FBSync._flushWrites();
@@ -12744,6 +12924,15 @@ document.addEventListener('visibilitychange', async () => {
     }
     // Invalidate cache supaya nav berikutnya re-pull fresh data
     if (FBSync._invalidateCache) FBSync._invalidateCache();
+    // AUDIT v3e: Auto-pull halaman aktif (force fresh data dari cloud)
+    // Ini mengatasi kasus: user import backup di device A, device B yang
+    // sudah buka app tidak tahu ada update. Saat user kembali ke app
+    // (visibilitychange), auto-pull halaman aktif supaya data baru muncul.
+    if (S.page && S.page !== 'chat') {
+      setTimeout(() => {
+        if (FBSync.pullForNav) FBSync.pullForNav(S.page).catch(()=>{});
+      }, 500);
+    }
   }
 });
 window.addEventListener('online',  () => {
