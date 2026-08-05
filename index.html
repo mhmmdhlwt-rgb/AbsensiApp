@@ -1880,18 +1880,21 @@ const App={
     }
     // Mapping halaman → store yang ditampilkan (sinkron dengan NAV_PULL di FBSync)
     const PAGE_STORES = {
-      dash: ['sesi','absensi','kegiatan','subKeg','kalam','perizinan','uzur','catatanSakit'],
-      kg:   ['kegiatan','subKeg','sesi'],
-      kgd:  ['kegiatan','subKeg','sesi','absensi','anggota'],
-      sub:  ['subKeg','anggota','santri'],
-      abs:  ['absensi','sesi','santri','uzur','kegiatan','subKeg','catatanSakit'],
+      // AUDIT v3l: Hanya list store on-demand (bukan realtime) untuk pull
+      // Store realtime (absensi, sesi, settings, anggota, perizinan, pelanggaran,
+      // uzur, catatanSakit) sudah di-handle oleh onSnapshot.
+      dash: ['kegiatan','subKeg','kalam'],
+      kg:   ['kegiatan','subKeg'],
+      kgd:  ['kegiatan','subKeg'],
+      sub:  ['subKeg','santri'],
+      abs:  ['santri','kegiatan','subKeg'],
       snt:  ['santri','kamar'],
-      sntd: ['santri','catatanSantri','absensi'],
-      profil: ['santri','absensi','catatanSantri','pelanggaran','perizinan','uzur','catatanSakit'],
-      rek:  ['sesi','absensi','santri','kegiatan','subKeg','anggota'],
-      set:  ['users','settings','kalam'],
-      pel:  ['pelanggaran','santri','peraturan','kegiatan','subKeg'],
-      izn:  ['perizinan','santri','settings','catatanSakit'],
+      sntd: ['santri','catatanSantri'],
+      profil: ['santri','catatanSantri'],
+      rek:  ['santri','kegiatan','subKeg'],
+      set:  ['users','kalam'],
+      pel:  ['santri','peraturan','kegiatan','subKeg'],
+      izn:  ['santri'],
     };
     const stores = PAGE_STORES[pg] || [];
     // Force invalidate semua cache (simpler, more reliable)
@@ -6328,7 +6331,14 @@ window.open(url,'_blank');
     const adminPinSetting=await DB.g('settings','admin_pin');
     const asmSetting=await DB.g('settings','asrama');
     // Clear semua store kecuali users
-    for(const s of ['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','kamar','settings','catatanSantri','pelanggaran','peraturan','perizinan','catatanSakit'])await DB.cl(s);
+    for(const s of ['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','kamar','settings','catatanSantri','pelanggaran','peraturan','perizinan','catatanSakit']){
+      await DB.cl(s);
+      // AUDIT v3l: Invalidate memory cache untuk store yang di-clear
+      // Tanpa ini, DB.ga() akan return data lama dari memory cache
+      if (typeof DB.invalidateCache === 'function') DB.invalidateCache(s);
+    }
+    // AUDIT v3l: Invalidate FBSync pull cache juga
+    if (FBSync._invalidateCache) FBSync._invalidateCache();
     // Hapus chat dari localStorage
     localStorage.removeItem('chat_msgs');
     localStorage.removeItem('chat_last_seen');
@@ -6337,11 +6347,9 @@ window.open(url,'_blank');
     // Restore settings penting
     if(adminPinSetting)await DB.p('settings',adminPinSetting);
     if(asmSetting)await DB.p('settings',asmSetting);
-    // Kamar TIDAK diisi ulang dengan data contoh — aplikasi setelah reset harus
-    // tanpa data kamar, santri, rekap, kegiatan dll (kosong total, siap diisi ulang).
     // Reset cloud: hapus semua kecuali users
     if(navigator.onLine){
-      T('&#x23F3; Mereset cloud...');
+      T('⏳ Mereset cloud...');
       try{
         const storesReset=['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','kamar','settings','catatanSantri','pelanggaran','peraturan','perizinan','chat','uzur','catatanSakit'];
         for(const s of storesReset){await _fbFetch('/'+s,'DELETE').catch(()=>{});}
@@ -6354,7 +6362,7 @@ window.open(url,'_blank');
     localStorage.removeItem('last_active_day');
     localStorage.removeItem('seeded');
     localStorage.setItem(KAMAR_VERSION,'1');
-    CS();T('&#x2705; Reset selesai!');setTimeout(()=>location.reload(),1800);
+    CS();T('✅ Reset selesai!');setTimeout(()=>location.reload(),1800);
   },
 
   // ── FITUR TERSEMBUNYI: Hapus riwayat lama (kecuali hari ini) ──────────
@@ -12749,7 +12757,14 @@ const FBSync = (() => {
   const _STORE_TO_PAGES = {
     absensi: ['dash','abs','kgd','rek','profil'],
     sesi:    ['dash','kg','kgd','sub','abs','rek'],
-    settings: ['dash','set','snt','kg'], // AUDIT v3i: settings relevan untuk banyak halaman
+    settings: ['dash','set','snt','kg'],
+    // AUDIT v3k: Tambah mapping untuk store realtime baru
+    anggota: ['kg','kgd','sub','abs'],      // anggota relevan di halaman kegiatan & absensi
+    perizinan: ['izn','dash','profil','abs'], // perizinan relevan di halaman perizinan & dashboard
+    pelanggaran: ['pel','dash','profil'],     // pelanggaran relevan di halaman pelanggaran & dashboard
+    // AUDIT v3l: Tambah mapping untuk uzur & catatanSakit
+    uzur: ['dash','abs','profil'],            // uzur relevan di dashboard, absensi, profil
+    catatanSakit: ['dash','izn','abs','profil'], // catatanSakit relevan di dashboard, perizinan, absensi, profil
   };
   function _isStoreRelevantToCurrentPage(store) {
     const pages = _STORE_TO_PAGES[store];
@@ -12771,8 +12786,9 @@ const FBSync = (() => {
       const pg = (typeof S !== 'undefined' && S.page) || 'dash';
       if (pg && pg !== 'chat') {
         try {
-          // Pull semua store esensial
-          await pull(['santri','sesi','absensi','kegiatan','subKeg','kamar','perizinan','pelanggaran','catatanSakit','uzur','catatanSantri']).catch(()=>{});
+          // AUDIT v3l: Pull SEMUA store (on-demand only — realtime store sudah
+          // di-handle oleh onSnapshot, tidak perlu pull manual)
+          await pull(['santri','kegiatan','subKeg','kamar','users','peraturan','kalam','auditLog','catatanSantri']).catch(()=>{});
           // Re-render halaman aktif
           _scheduleReRender();
           if (window.T) T('🔄 Data disinkronkan dari perangkat lain', 3000);
@@ -12849,13 +12865,17 @@ const FBSync = (() => {
   // saat sedang aktif absensi). Semua store lain: load once saat dibutuhkan,
   // cache 5 menit, tidak ada background polling.
   // User feedback: "Aplikasi harus offline first, jangan semua2 online"
-  // AUDIT v3i: Tambah 'settings' ke realtime supaya sync trigger tertangkap
-  const _REALTIME_STORES = ['absensi', 'sesi', 'settings'];
+  // AUDIT v3l: Tambah 'uzur' & 'catatanSakit' ke realtime
+  // uzur: santri uzur → status absensi jadi 'uzur' bukan 'alpha'
+  // catatanSakit: santri sakit → status absensi jadi 'sakit' bukan 'alpha'
+  // Keduanya berdampak langsung ke logika absensi — harus sync cepat.
+  const _REALTIME_STORES = ['absensi', 'sesi', 'settings', 'anggota', 'perizinan', 'pelanggaran', 'uzur', 'catatanSakit'];
   // Backward-compat alias
   const _LISTENER_STORES = _REALTIME_STORES;
   // Store yang di-load on-demand (saat nav ke halaman tsb), bukan realtime
   // dan bukan polling. Cache 5 menit supaya nav back-forth tidak re-fetch.
-  const _ON_DEMAND_STORES = ['santri','kegiatan','subKeg','anggota','kamar','users','peraturan','kalam','settings','auditLog','catatanSantri','pelanggaran','perizinan','uzur','catatanSakit'];
+  // AUDIT v3l: Hapus uzur & catatanSakit dari on-demand (sudah realtime)
+  const _ON_DEMAND_STORES = ['santri','kegiatan','subKeg','kamar','users','peraturan','kalam','auditLog','catatanSantri'];
   // Cache: { storeName: timestampLastPullMs }
   const _pullCache = {};
   const _PULL_CACHE_TTL = 5 * 60 * 1000; // 5 menit
@@ -12930,7 +12950,7 @@ const FBSync = (() => {
     // ── AUDIT v3h: LAZY LISTENER + DEDUP ──
     // Hanya attach jika halaman aktif butuh realtime.
     // Halaman yang butuh realtime absensi/sesi: dash, abs, kgd, rek, profil, kg, sub
-    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
+    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub', 'pel', 'izn'];
     const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
     if (!REALTIME_PAGES.includes(currentPage)) {
       console.log('[FB Listeners] Skipped — page', currentPage, 'tidak butuh realtime');
@@ -12961,7 +12981,7 @@ const FBSync = (() => {
       }
       if (!navigator.onLine) return;
       // Hanya restart jika ada listener yang seharusnya aktif tapi mati
-      const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
+      const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub', 'pel', 'izn'];
       const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
       if (REALTIME_PAGES.includes(currentPage) && _unsubs.length < _REALTIME_STORES.length) {
         console.warn('[FB Listeners] Health check: hanya', _unsubs.length, '/', _REALTIME_STORES.length, 'aktif — restart');
@@ -12988,18 +13008,21 @@ const FBSync = (() => {
   // NAV PULL: store yang di-pull saat navigasi ke halaman tertentu
   // ════════════════════════════════════════════════════════
   const NAV_PULL = {
-    dash:    ['sesi','absensi','kegiatan','subKeg','kalam','perizinan','uzur','catatanSakit'],
-    kg:      ['kegiatan','subKeg','sesi'],
-    kgd:     ['kegiatan','subKeg','sesi','absensi','anggota'],
-    sub:     ['subKeg','anggota','santri'],
-    abs:     ['absensi','sesi','santri','uzur','kegiatan','subKeg','catatanSakit'],
+    // AUDIT v3l: Hapus uzur & catatanSakit dari nav pull (sudah realtime)
+    // Store yang sudah realtime (absensi, sesi, settings, anggota, perizinan,
+    // pelanggaran, uzur, catatanSakit) TIDAK perlu di-pull — onSnapshot handle.
+    dash:    ['kegiatan','subKeg','kalam'],
+    kg:      ['kegiatan','subKeg'],
+    kgd:     ['kegiatan','subKeg'],
+    sub:     ['subKeg','santri'],
+    abs:     ['santri','kegiatan','subKeg'],
     snt:     ['santri','kamar'],
-    sntd:    ['santri','catatanSantri','absensi'],
-    rek:     ['sesi','absensi','santri','kegiatan','subKeg','anggota'],
-    set:     ['users','settings','kalam'],
-    pel:     ['pelanggaran','santri','peraturan','kegiatan','subKeg'],
-    izn:     ['perizinan','santri','settings','catatanSakit'],
-    profil:  ['santri','absensi','catatanSantri','pelanggaran','perizinan','uzur','catatanSakit'],
+    sntd:    ['santri','catatanSantri'],
+    rek:     ['santri','kegiatan','subKeg'],
+    set:     ['users','kalam'],
+    pel:     ['santri','peraturan','kegiatan','subKeg'],
+    izn:     ['santri'],
+    profil:  ['santri','catatanSantri'],
     chat:    [],
   };
 
@@ -13149,7 +13172,7 @@ const FBSync = (() => {
     // Saat user pindah KE halaman realtime, start listeners.
     // Saat user pindah DARI halaman realtime ke non-realtime, stop listeners.
     // Ini hemat ~300 reads/jam untuk user yang lama di halaman non-realtime.
-    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
+    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub', 'pel', 'izn'];
     const wasRealtime = REALTIME_PAGES.includes(S.page);
     const willBeRealtime = REALTIME_PAGES.includes(pg);
     if (navigator.onLine) {
@@ -13267,7 +13290,7 @@ document.addEventListener('visibilitychange', async () => {
     FBSync._flushWrites();
     // AUDIT v3h: Hanya restart listeners jika BENAR-BENAR mati (jumlah < seharusnya)
     // Jangan restart kalau masih aktif — itu penyebab 116 listener ganda
-    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
+    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub', 'pel', 'izn'];
     const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
     if (REALTIME_PAGES.includes(currentPage)) {
       // Cek apakah listener masih aktif
