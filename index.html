@@ -8936,8 +8936,12 @@ await this._share(t);
       // AUDIT v3h: Gunakan targetNs (bukan _fbNs()) supaya cross-tenant restore
       // menulis ke tenant yang benar.
       if(navigator.onLine){
-        for(const s of stores){
+        // AUDIT v3j: Progress tracking + error handling per store
+        let purgeErrors = 0;
+        for(let i = 0; i < stores.length; i++){
+          const s = stores[i];
           try{
+            T('⏳ Menghapus data lama... (' + (i+1) + '/' + stores.length + ')', 2000);
             const snap=await _fsDB.collection('tenants').doc(targetNs).collection(s).get().catch(()=>null);
             if(snap && snap.docs && snap.docs.length){
               let batch=_fsDB.batch(),cnt=0;
@@ -8947,8 +8951,12 @@ await this._share(t);
               }
               if(cnt>0)await batch.commit();
             }
-          }catch(e){console.warn('[Restore] purge FB '+s+':',e);}
+          }catch(e){
+            console.warn('[Restore] purge FB '+s+':',e);
+            purgeErrors++;
+          }
         }
+        if (purgeErrors > 0) console.warn('[Restore] purge errors:', purgeErrors, 'stores');
       }
       // Clear & restore lokal
       for(const s of stores){
@@ -8958,20 +8966,14 @@ await this._share(t);
         }
       }
       // ── AUDIT v3e FIX: Force flush write queue ke cloud ──
-      // Setelah restore lokal, DB.p sudah enqueue write ke FBSync.write queue.
-      // Tapi write queue flush tiap 10 detik (background). Jika user tutup app
-      // sebelum flush, data tidak sampai ke cloud → device B tidak sync.
-      // Sekarang: force flush SEKARANG, tunggu sampai selesai.
       if (navigator.onLine && FBSync && FBSync._flushWrites) {
         T('⏳ Mengunggah data ke cloud... jangan tutup aplikasi.', 8000);
         try {
-          // Force flush — tunggu sampai queue kosong
           let attempts = 0;
           while (attempts < 10) {
             await FBSync._flushWrites();
-            // Cek apakah queue masih ada item (via _dot state)
             const dot = document.getElementById('sync-dot');
-            if (dot && dot.className === 'ok') break; // queue kosong
+            if (dot && dot.className === 'ok') break;
             attempts++;
             await new Promise(r => setTimeout(r, 1000));
           }
@@ -8981,14 +8983,41 @@ await this._share(t);
         }
       }
       // ── AUDIT v3e FIX: Push langsung ke Firestore (bypass write queue) ──
-      // Double-ensure: push semua item langsung ke Firestore via batch write.
-      // Ini mengatasi kasus di mana write queue tidak sempat flush.
-      // AUDIT v3h: Pakai targetNs (bukan _fbNs()) supaya cross-tenant restore
-      // menulis ke tenant yang benar.
+      // AUDIT v3j: Tambah progress tracking + error handling per store.
+      // Sebelumnya: jika 1 store gagal, seluruh push berhenti → data cloud
+      // tidak lengkap. Sekarang: setiap store di-try-catch terpisah, lanjut
+      // ke store berikutnya meski ada yang gagal.
       if (navigator.onLine) {
-        try {
-          for(const s of stores){
-            if(data[s]&&Array.isArray(data[s]) && data[s].length > 0){
+        let pushErrors = 0;
+        let pushSuccess = 0;
+        for(let i = 0; i < stores.length; i++){
+          const s = stores[i];
+          if(!data[s] || !Array.isArray(data[s]) || data[s].length === 0) continue;
+          try {
+            T('⏳ Mengunggah ' + s + '... (' + (i+1) + '/' + stores.length + ')', 2000);
+            let batch = _fsDB.batch(), cnt = 0;
+            const col = _fsDB.collection('tenants').doc(targetNs).collection(s);
+            for(const item of data[s]){
+              if(item && item.id){
+                const cleaned = _fsClean(item);
+                delete cleaned._ts; delete cleaned._etag; delete cleaned._srvTs;
+                batch.set(col.doc(item.id), cleaned, {merge: false});
+                if(++cnt >= 450){
+                  await batch.commit();
+                  batch = _fsDB.batch();
+                  cnt = 0;
+                }
+              }
+            }
+            if(cnt > 0) await batch.commit();
+            pushSuccess++;
+            console.log('[Restore] Direct push (' + targetNs + '):', s, data[s].length, 'docs');
+          } catch(e) {
+            console.warn('[Restore] push error for', s, ':', e.message);
+            pushErrors++;
+            // AUDIT v3j: Retry sekali untuk store ini
+            try {
+              T('⏳ Mencoba ulang ' + s + '...', 2000);
               let batch = _fsDB.batch(), cnt = 0;
               const col = _fsDB.collection('tenants').doc(targetNs).collection(s);
               for(const item of data[s]){
@@ -9004,13 +9033,17 @@ await this._share(t);
                 }
               }
               if(cnt > 0) await batch.commit();
-              console.log('[Restore] Direct push to Firestore (' + targetNs + '):', s, data[s].length, 'docs');
+              pushSuccess++;
+              console.log('[Restore] Retry push success:', s);
+            } catch(e2) {
+              console.error('[Restore] retry push failed for', s, ':', e2.message);
             }
           }
-          T('✅ Data tersinkron ke cloud!', 3000);
-        } catch(e) {
-          console.warn('[Restore] direct push error:', e);
-          T('⚠️ Sebagian data mungkin belum sync. Klik tombol Refresh.', 5000);
+        }
+        if (pushErrors > 0) {
+          T('⚠️ ' + pushSuccess + ' store berhasil, ' + pushErrors + ' gagal. Coba "Sync Semua" lagi.', 5000);
+        } else {
+          T('✅ Data tersinkron ke cloud! (' + pushSuccess + ' store)', 3000);
         }
       }
       // Restore chat messages (localStorage + cloud)
@@ -9038,7 +9071,18 @@ await this._share(t);
         // Hanya info bahwa metadata tersimpan di file.
         console.log('[Restore] Backup berisi metadata tenant:',data.tenant_nama);
       }
-      T('\u2705 Backup berhasil dipulihkan! Memuat ulang...');
+      T('✅ Backup berhasil dipulihkan! Memuat ulang...');
+      // ── AUDIT v3i: Broadcast sync trigger ke device lain ──
+      // Setelah import, tulis timestamp ke settings/syncTrigger di cloud.
+      // Device lain yang punya onSnapshot untuk settings akan ter-trigger
+      // dan invalidate cache + pull fresh data.
+      if (navigator.onLine) {
+        try {
+          const triggerRef = _fsDB.collection('tenants').doc(targetNs).collection('settings').doc('_syncTrigger');
+          await triggerRef.set({ ts: Date.now(), by: S.user?.nama || '-', type: 'import' }, { merge: true });
+          console.log('[Restore] Sync trigger broadcasted');
+        } catch(e) { console.warn('[Restore] sync trigger error:', e); }
+      }
       setTimeout(()=>location.reload(),1500);
     }catch(e){
       console.error('[Restore] error:',e);
@@ -9417,14 +9461,46 @@ const TenantPicker = {
     const ic=document.getElementById('tp-icon');
     if(ic && !ic._lpBound){
       ic._lpBound=true;
-      const start=()=>{this._lpFired=false;this._lpTimer=setTimeout(()=>{this._lpFired=true;this._enterSuperAdmin();},700);};
-      const cancel=()=>{if(this._lpTimer){clearTimeout(this._lpTimer);this._lpTimer=null;}};
+      // AUDIT v3i: Fix long-press handler — tambah navigator.vibrate untuk
+      // feedback, dan pastikan _enterSuperAdmin dipanggil dengan benar.
+      // Juga tambah click handler sebagai fallback (jika long-press tidak
+      // terdeteksi di beberapa browser mobile).
+      const start=(e)=>{
+        this._lpFired=false;
+        if(navigator.vibrate) navigator.vibrate(5); // feedback singkat
+        this._lpTimer=setTimeout(()=>{
+          this._lpFired=true;
+          if(navigator.vibrate) navigator.vibrate(20); // feedback long-press
+          try {
+            this._enterSuperAdmin();
+          } catch(err) {
+            console.error('[SuperAdmin] _enterSuperAdmin error:', err);
+            T('❌ Gagal membuka PIN super admin: ' + (err.message||err), 5000);
+          }
+        },700);
+      };
+      const cancel=()=>{
+        if(this._lpTimer){clearTimeout(this._lpTimer);this._lpTimer=null;}
+      };
+      // Touch events (mobile)
       ic.addEventListener('touchstart',start,{passive:true});
       ic.addEventListener('touchend',cancel,{passive:true});
       ic.addEventListener('touchcancel',cancel,{passive:true});
+      // Mouse events (desktop)
       ic.addEventListener('mousedown',start);
       ic.addEventListener('mouseup',cancel);
       ic.addEventListener('mouseleave',cancel);
+      // AUDIT v3i: Fallback — double-click juga buka super admin
+      // (jika long-press tidak jalan di browser tertentu)
+      ic.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if(navigator.vibrate) navigator.vibrate(20);
+        try { this._enterSuperAdmin(); }
+        catch(err) { console.error('[SuperAdmin] dblclick error:', err); }
+      });
+      // AUDIT v3i: Tambah style cursor pointer supaya user tahu ini clickable
+      ic.style.cursor = 'pointer';
     }
     const ft=document.getElementById('tp-footer');
     if(ft && !ft._tapBound){
@@ -12492,7 +12568,7 @@ const FBSync = (() => {
     if (!navigator.onLine) { T('\u26A0 Tidak ada koneksi internet'); return; }
     _dot('syncing'); T('\u23F3 Sinkronisasi cerdas...');
     const ALL = ['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','users','kamar','catatanSantri','pelanggaran','peraturan','settings','kalam','perizinan','uzur','catatanSakit'];
-    let pushed=0, skipped=0, tombed=0;
+    let pushed=0, skipped=0, tombed=0, errors=0;
     try {
       for (const store of ALL) {
         const localAll = await DB.ga(store); if (!localAll.length) continue;
@@ -12503,7 +12579,10 @@ const FBSync = (() => {
           Object.values(fbRaw).forEach(x=>{ if(x&&x.id) fbMap[x.id]=x; });
         }
         for (const loc of localAll) {
-          const fb = fbMap[loc.id];
+          // AUDIT v3j: FIX 'assignment to constant variable' — ubah const ke let
+          // Sebelumnya: const fb = fbMap[loc.id] → tidak bisa di-reassign
+          // di baris _restoreFoto. Sekarang pakai let.
+          let fb = fbMap[loc.id];
           const locTs = loc.updatedAt || loc.createdAt || 0;
           const fbTs  = fb ? (fb.updatedAt || fb.createdAt || 0) : 0;
           // ── Jika FB punya tombstone untuk id ini, hapus lokal (jangan push) ──
@@ -12533,9 +12612,10 @@ const FBSync = (() => {
         }
       }
       _dot('ok');
-      T('\u2705 Sync selesai: '+pushed+' diunggah, '+skipped+' diperbarui dari cloud' + (tombed ? ', '+tombed+' dihapus (tombstone)' : ''));
+      T('\u2705 Sync selesai: '+pushed+' diunggah, '+skipped+' diperbarui dari cloud' + (tombed ? ', '+tombed+' dihapus (tombstone)' : '') + (errors ? ', '+errors+' error' : ''));
     } catch(e) {
       _dot('err'); T('\u274C Gagal: ' + e.message);
+      console.error('[pushAll] error:', e);
     }
   }
 
@@ -12669,6 +12749,7 @@ const FBSync = (() => {
   const _STORE_TO_PAGES = {
     absensi: ['dash','abs','kgd','rek','profil'],
     sesi:    ['dash','kg','kgd','sub','abs','rek'],
+    settings: ['dash','set','snt','kg'], // AUDIT v3i: settings relevan untuk banyak halaman
   };
   function _isStoreRelevantToCurrentPage(store) {
     const pages = _STORE_TO_PAGES[store];
@@ -12677,6 +12758,28 @@ const FBSync = (() => {
   }
 
   async function _handleDocChange(store, doc) {
+    // ── AUDIT v3i: Sync trigger detection ──
+    // Jika store='settings' dan doc.id='_syncTrigger', invalidate SEMUA cache
+    // dan force pull halaman aktif. Ini mengatasi "import di device A tidak
+    // muncul di device B" — device B ter-trigger via onSnapshot settings.
+    if (store === 'settings' && doc.id === '_syncTrigger') {
+      console.log('[FBSync] Sync trigger detected! Invalidating cache + force pull...');
+      // Invalidate semua cache
+      if (typeof DB.invalidateCache === 'function') DB.invalidateCache();
+      if (_invalidateCache) _invalidateCache();
+      // Force pull halaman aktif (bypass cache)
+      const pg = (typeof S !== 'undefined' && S.page) || 'dash';
+      if (pg && pg !== 'chat') {
+        try {
+          // Pull semua store esensial
+          await pull(['santri','sesi','absensi','kegiatan','subKeg','kamar','perizinan','pelanggaran','catatanSakit','uzur','catatanSantri']).catch(()=>{});
+          // Re-render halaman aktif
+          _scheduleReRender();
+          if (window.T) T('🔄 Data disinkronkan dari perangkat lain', 3000);
+        } catch(e) { console.warn('[FBSync] sync trigger pull error:', e); }
+      }
+      return; // Jangan proses doc ini lebih lanjut
+    }
     if (!doc.exists) {
       // Doc hard-deleted dari FB (jarang terjadi dengan strategi tombstone,
       // tapi tangani sebagai jaring pengaman)
@@ -12746,7 +12849,8 @@ const FBSync = (() => {
   // saat sedang aktif absensi). Semua store lain: load once saat dibutuhkan,
   // cache 5 menit, tidak ada background polling.
   // User feedback: "Aplikasi harus offline first, jangan semua2 online"
-  const _REALTIME_STORES = ['absensi', 'sesi'];
+  // AUDIT v3i: Tambah 'settings' ke realtime supaya sync trigger tertangkap
+  const _REALTIME_STORES = ['absensi', 'sesi', 'settings'];
   // Backward-compat alias
   const _LISTENER_STORES = _REALTIME_STORES;
   // Store yang di-load on-demand (saat nav ke halaman tsb), bukan realtime
@@ -13112,26 +13216,20 @@ const FBSync = (() => {
 
 // ════════════════════════════════════════════════════════════
 // PATCH IMPORT SANTRI — prevent duplikat saat import massal
+// AUDIT v3i: FIX BUG — patch ini sebelumnya MENIMPA fungsi _doImport
+// yang asli (yang sudah handle NFC). Patch ini hanya simpan nama, kamar,
+// nis — TIDAK simpan NFC. Akibatnya: "import massal santri, NFC tidak
+// terdaftar padahal sudah di input".
+// Sekarang: HAPUS patch ini supaya fungsi _doImport yang asli (line 5932)
+// yang sudah handle NFC (p[3] = nfcUid) dipakai. Fungsi asli juga sudah
+// punya dedup logic (by NIS dan by nama ter-normalisasi).
 // ════════════════════════════════════════════════════════════
-(function patchImport() {
-  const _origImport = App._doImport.bind(App);
-  App._doImport = async function() {
-    const txt = document.getElementById('imp-txt')?.value.trim(); if (!txt) return;
-    const existing = await DB.ga('santri');
-    const existSet = new Set(existing.map(x => x.nama.trim().toLowerCase() + '|' + (x.kamar||'').trim().toLowerCase()));
-    let n = 0, skip = 0;
-    for (const line of txt.split('\n').filter(l => l.trim())) {
-      const parts = line.split(',').map(x => x.trim());
-      if (!parts[0]) continue;
-      const key = parts[0].toLowerCase() + '|' + (parts[1]||'Umum').toLowerCase();
-      if (existSet.has(key)) { skip++; continue; }
-      await DB.p('santri', {id:uid(), nama:parts[0], kamar:parts[1]||'Umum', nis:parts[2]||'', aktif:true, createdAt:Date.now(), updatedAt:Date.now()});
-      existSet.add(key); n++;
-    }
-    CS(); T('\u2705 ' + n + ' santri diimport' + (skip?' (' + skip + ' duplikat dilewati)':'') + '!');
-    await this.renderSnt();
-  };
-})();
+// (function patchImport() { — DIHAPUS, pakai fungsi asli
+//   const _origImport = App._doImport.bind(App);
+//   App._doImport = async function() {
+//     ... TIDAK handle NFC ...
+//   };
+// })();
 
 // ════════════════════════════════════════════════════════════
 // BACKGROUND REFRESH — flush writes only (chat NON-realtime)
