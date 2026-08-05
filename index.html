@@ -6171,10 +6171,156 @@ window.open(url,'_blank');
     OS(`<div class="sh">Audit Log</div><div class="sb" style="padding-bottom:70px">${logs.length?logs.map(l=>`<div class="ar"><div class="ad"></div><div class="at3">${new Date(l.time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}</div><div class="ax"><strong>${l.sntNama}</strong> \u00B7 ${l.kgNama||''}<br>${l.from||'?'} \u2192 ${l.to} \u00B7 <span style="color:var(--t4)">${l.oleh}</span></div></div>`).join(''):'<div class="empty"><div class="es">Belum ada log.</div></div>'}</div>`);
   },
   confirmReset(){
-    if(!S._adminMode){T('&#x1F512; Hanya admin yang bisa reset!');return;}
-    OS(`<div class="cw"><div class="ci3">&#x26A0;&#xFE0F;</div><div class="ct3">Reset Semua Data?</div>
-      <div class="cs3">Santri, kegiatan, absensi, perizinan, pelanggaran akan dihapus.<br>Data musyrifah & admin tetap.<br>Cloud juga direset.</div>
-      <div class="cbs"><button class="cc" onclick="CS()">Batal</button><button class="co" onclick="App._doReset()">Reset</button></div></div>`);
+    if(!S._adminMode){T('🔒 Hanya admin yang bisa reset!');return;}
+    // AUDIT v3h: Reset granular — pilih apa yang di-reset
+    OS(`<div class="sh">🗑 Reset Data</div><div class="sb" style="padding-bottom:70px">
+      <div style="font-size:12px;color:var(--t3);margin-bottom:14px;line-height:1.5">Pilih jenis data yang ingin dihapus. Data akan dihapus dari perangkat ini DAN cloud (semua perangkat). Tidak bisa dibatalkan.</div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App._resetGranular(['kegiatan','subKeg','anggota'])">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(37,99,235,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📋</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Kegiatan & Sub-Kegiatan</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Hapus semua kegiatan, sub-kegiatan, dan anggota kamar. Santri tetap aman.</div>
+          </div>
+          <div style="color:#ef4444;font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App._resetGranular(['sesi','absensi','auditLog'])">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">✅</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Riwayat Absensi & Timeline</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Hapus semua sesi, absensi, dan audit log. Santri, kegiatan, dan pengaturan tetap aman.</div>
+          </div>
+          <div style="color:#ef4444;font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App._resetGranular(['pelanggaran'])">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⚠️</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Pelanggaran</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Hapus semua catatan pelanggaran (alpha, terlambat, dll). Absensi tetap aman.</div>
+          </div>
+          <div style="color:#ef4444;font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App._resetGranular(['perizinan','uzur','catatanSakit'])">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(245,158,11,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📝</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Perizinan, Uzur & Sakit</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Hapus semua data perizinan, uzur, dan catatan sakit. Santri tetap aman.</div>
+          </div>
+          <div style="color:#ef4444;font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App._resetGranular(['santri','kamar','catatanSantri'])">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">👥</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Data Santri & Kamar</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Hapus semua santri, kamar, dan catatan santri. Kegiatan tetap aman.</div>
+          </div>
+          <div style="color:#ef4444;font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App._resetGranular(['chat'])">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(139,92,246,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">💬</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:var(--t1)">Chat & Notifikasi</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Hapus semua pesan chat dan notifikasi sistem.</div>
+          </div>
+          <div style="color:#ef4444;font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="background:rgba(239,68,68,.05);border:1.5px solid rgba(239,68,68,.22);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App.confirmResetAll()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(239,68,68,.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🗑</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:#ef4444">RESET SEMUA DATA</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Hapus SEMUA data kecuali users & settings. Kembali ke kondisi awal.</div>
+          </div>
+          <div style="color:#ef4444;font-size:18px">→</div>
+        </div>
+      </div>
+    </div>`);
+  },
+  // AUDIT v3h: Reset granular — hapus store yang dipilih saja
+  _resetGranular(stores){
+    if(!S._adminMode){T('🔒 Hanya admin!');return;}
+    const labels = {kegiatan:'Kegiatan',subKeg:'Sub-Kegiatan',anggota:'Anggota',sesi:'Sesi',absensi:'Absensi',auditLog:'Audit Log',pelanggaran:'Pelanggaran',perizinan:'Perizinan',uzur:'Uzur',catatanSakit:'Catatan Sakit',santri:'Santri',kamar:'Kamar',catatanSantri:'Catatan Santri',chat:'Chat'};
+    const labelStr = stores.map(s => labels[s]||s).join(', ');
+    OS(`<div class="cw"><div class="ci3" style="background:rgba(239,68,68,.1);color:#ef4444">🗑</div><div class="ct3" style="color:#ef4444">Reset: ${labelStr}?</div>
+      <div class="cs3">Data berikut akan dihapus PERMANEN dari perangkat ini dan cloud:<br><strong>${labelStr}</strong><br><br>Data lain tetap aman. Tidak bisa dibatalkan.</div>
+      <div class="cbs"><button class="cc" onclick="CS()">Batal</button><button class="co" style="background:#ef4444" onclick="App._doResetGranular('${stores.join(',')}')">Hapus</button></div></div>`);
+  },
+  async _doResetGranular(storesStr){
+    if(!S._adminMode){T('🔒 Hanya admin!');return;}
+    const stores = storesStr.split(',');
+    CS();
+    T('⏳ Mereset data... jangan tutup aplikasi.', 6000);
+    try {
+      // Clear lokal
+      for (const s of stores) {
+        if (s === 'chat') {
+          localStorage.removeItem('chat_msgs');
+          localStorage.removeItem('chat_last_seen');
+        } else {
+          await DB.cl(s).catch(()=>{});
+          // Invalidate memory cache
+          if (typeof DB.invalidateCache === 'function') DB.invalidateCache(s);
+        }
+      }
+      // Reset cloud — hapus koleksi yang dipilih
+      if (navigator.onLine) {
+        for (const s of stores) {
+          if (s === 'chat') {
+            // Chat: hapus via batch
+            try {
+              const snap = await _fsDB.collection('tenants').doc(_fbNs()).collection('chat').get().catch(()=>null);
+              if (snap && snap.docs && snap.docs.length) {
+                let batch = _fsDB.batch(), cnt = 0;
+                for (const doc of snap.docs) {
+                  batch.delete(doc.ref);
+                  if (++cnt >= 450) { await batch.commit(); batch = _fsDB.batch(); cnt = 0; }
+                }
+                if (cnt > 0) await batch.commit();
+              }
+            } catch(e) { console.warn('[Reset] chat cloud error:', e); }
+          } else {
+            await _fbFetch('/' + s, 'DELETE').catch(()=>{});
+          }
+        }
+      }
+      T('✅ Reset selesai!', 3000);
+      // Re-render halaman aktif
+      if (S.page === 'dash') await this.dash().catch(()=>{});
+      else if (S.page === 'kg') await this.renderKg().catch(()=>{});
+      else if (S.page === 'snt') await this.renderSnt().catch(()=>{});
+      else if (S.page === 'pel') await this.renderPel().catch(()=>{});
+      else if (S.page === 'izn') await this.renderIzn().catch(()=>{});
+      else if (S.page === 'set') await this.renderSet().catch(()=>{});
+      // Invalidate FBSync cache
+      if (FBSync._invalidateCache) FBSync._invalidateCache();
+    } catch(e) {
+      console.error('[Reset] error:', e);
+      T('❌ Gagal reset: ' + (e.message||e), 5000);
+    }
+  },
+  confirmResetAll(){
+    if(!S._adminMode){T('🔒 Hanya admin yang bisa reset!');return;}
+    OS(`<div class="cw"><div class="ci3">⚠️</div><div class="ct3">Reset SEMUA Data?</div>
+      <div class="cs3">SEMUA data (santri, kegiatan, absensi, perizinan, pelanggaran, dll) akan dihapus.<br>Hanya data musyrifah & admin (users + settings) yang tetap.<br>Cloud juga direset. <strong>Tidak bisa dibatalkan.</strong></div>
+      <div class="cbs"><button class="cc" onclick="CS()">Batal</button><button class="co" style="background:#ef4444" onclick="App._doReset()">Reset Semua</button></div></div>`);
   },
   async _doReset(){
     // Simpan users dan settings admin dulu
@@ -8748,36 +8894,35 @@ await this._share(t);
         T('❌ File bukan backup yang valid (tidak ada metadata exportedAt).');
         return;
       }
-      // ── FASE 2 AUDIT FIX: Validasi tenant_ns mismatch ──
-      // Jika file backup berasal dari tenant A tapi di-restore di device
-      // yang sedang aktif di tenant B, data akan tertumpang di tenant B
-      // (karena path Firestore pakai _fbNs() = tenant B saat ini).
-      // Tampilkan konfirmasi jika beda, atau auto-switch jika user setuju.
+      // ── AUDIT v3h FIX: Cross-tenant restore tanpa reload ──
+      // Sebelumnya: jika tenant beda, switch localStorage lalu reload. Tapi
+      // setelah reload, user harus klik tombol restore LAGI + pilih file LAGI.
+      // User sering lupa → restore gagal.
+      // Sekarang: konfirmasi, lalu switch tenant langsung di memori + restore
+      // langsung ke tenant yang benar. Tidak perlu reload.
       const currentNs = _fbNs();
       const backupNs = data.tenant_ns;
       const backupNama = data.tenant_nama || backupNs;
+      let targetNs = currentNs;
       if (backupNs && backupNs !== currentNs && currentNs !== 'default') {
         const konfirmasi = confirm(
-          '⚠️ PERINGATAN TENANT MISMATCH\\n\\n' +
-          'File backup berasal dari: ' + backupNama + ' (ns: ' + backupNs + ')\\n' +
-          'Device ini sedang aktif di: ' + (localStorage.getItem('tenant_nama')||currentNs) + ' (ns: ' + currentNs + ')\\n\\n' +
-          'Jika lanjut, data dari backup akan MENIMPA data di tenant "' + currentNs + '".\\n' +
-          'Data cloud tenant "' + currentNs + '" yang ada sekarang akan di-PURGE total.\\n\\n' +
-          'Pilih OK untuk: (1) switch ke tenant "' + backupNs + '", (2) reload, (3) restore di sana.\\n' +
-          'Pilih Cancel untuk: batalkan restore.'
+          '⚠️ PERINGATAN TENANT MISMATCH\n\n' +
+          'File backup berasal dari: ' + backupNama + ' (ns: ' + backupNs + ')\n' +
+          'Device ini sedang aktif di: ' + (localStorage.getItem('tenant_nama')||currentNs) + ' (ns: ' + currentNs + ')\n\n' +
+          'Pilih OK untuk: Restore ke tenant "' + backupNama + '" (switch otomatis)\n' +
+          'Pilih Cancel untuk: Batalkan restore.'
         );
         if (!konfirmasi) {
           T('❌ Restore dibatalkan.');
           return;
         }
-        // Switch ke tenant backup lalu reload (restore akan diulang setelah reload
-        // jika user klik tombol restore lagi). Lebih aman daripada restore langsung.
+        // Switch tenant di localStorage + di memori
         localStorage.setItem('tenant_ns', backupNs);
         localStorage.setItem('tenant_nama', backupNama);
         localStorage.setItem('tenant_tipe', data.tenant_tipe || 'asrama');
-        T('🔄 Switched ke tenant ' + backupNama + '. Silakan pilih file backup lagi setelah reload.');
-        setTimeout(() => location.reload(), 1500);
-        return;
+        targetNs = backupNs;
+        T('🔄 Memberalihkan ke tenant ' + backupNama + '...', 2000);
+        // Tidak perlu reload — lanjut restore langsung ke targetNs
       }
       // Versi backup — warning kalau beda major version
       const verMajor = parseInt(String(data.version||'0').split('.')[0], 10);
@@ -8786,17 +8931,14 @@ await this._share(t);
       }
       const stores=['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','users','kamar','settings','catatanSantri','pelanggaran','peraturan','kalam','perizinan','uzur','catatanSakit'];
       CS();
-      T('⏳ Memulihkan data... (menghapus data lama dulu)');
+      T('⏳ Memulihkan data ke tenant ' + (backupNama || targetNs) + '...', 6000);
       // ── H5 BUG FIX: True restore — purge Firestore dulu, lalu lokal ──
-      // Sebelumnya: hanya clear lokal + push item baru → Firestore lama yang
-      // tidak ada di backup tetap ada → "restore" sebenarnya merge, bukan replace.
-      // Sekarang: untuk setiap store, hapus SEMUA dokumen Firestore di tenant
-      // ini, baru kemudian clear lokal + restore dari backup + push ke cloud.
+      // AUDIT v3h: Gunakan targetNs (bukan _fbNs()) supaya cross-tenant restore
+      // menulis ke tenant yang benar.
       if(navigator.onLine){
         for(const s of stores){
           try{
-            // Hapus semua dokumen di Firestore tenants/{ns}/{s}
-            const snap=await _fsDB.collection('tenants').doc(_fbNs()).collection(s).get().catch(()=>null);
+            const snap=await _fsDB.collection('tenants').doc(targetNs).collection(s).get().catch(()=>null);
             if(snap && snap.docs && snap.docs.length){
               let batch=_fsDB.batch(),cnt=0;
               for(const doc of snap.docs){
@@ -8841,18 +8983,19 @@ await this._share(t);
       // ── AUDIT v3e FIX: Push langsung ke Firestore (bypass write queue) ──
       // Double-ensure: push semua item langsung ke Firestore via batch write.
       // Ini mengatasi kasus di mana write queue tidak sempat flush.
+      // AUDIT v3h: Pakai targetNs (bukan _fbNs()) supaya cross-tenant restore
+      // menulis ke tenant yang benar.
       if (navigator.onLine) {
         try {
           for(const s of stores){
             if(data[s]&&Array.isArray(data[s]) && data[s].length > 0){
-              // Batch write langsung ke Firestore (bukan via DB.p yang enqueue)
               let batch = _fsDB.batch(), cnt = 0;
-              const col = _fsDB.collection('tenants').doc(_fbNs()).collection(s);
+              const col = _fsDB.collection('tenants').doc(targetNs).collection(s);
               for(const item of data[s]){
                 if(item && item.id){
                   const cleaned = _fsClean(item);
-                  delete cleaned._ts; delete cleaned._etag;
-                  batch.set(col.doc(item.id), cleaned, {merge: false}); // overwrite, bukan merge
+                  delete cleaned._ts; delete cleaned._etag; delete cleaned._srvTs;
+                  batch.set(col.doc(item.id), cleaned, {merge: false});
                   if(++cnt >= 450){
                     await batch.commit();
                     batch = _fsDB.batch();
@@ -8861,7 +9004,7 @@ await this._share(t);
                 }
               }
               if(cnt > 0) await batch.commit();
-              console.log('[Restore] Direct push to Firestore:', s, data[s].length, 'docs');
+              console.log('[Restore] Direct push to Firestore (' + targetNs + '):', s, data[s].length, 'docs');
             }
           }
           T('✅ Data tersinkron ke cloud!', 3000);
@@ -8870,13 +9013,22 @@ await this._share(t);
           T('⚠️ Sebagian data mungkin belum sync. Klik tombol Refresh.', 5000);
         }
       }
-      // Restore chat messages (localStorage)
+      // Restore chat messages (localStorage + cloud)
+      // AUDIT v3h: Pakai targetNs untuk cloud restore
       if(Array.isArray(data.chat)){
         try{
-          localStorage.setItem('chat_msgs',JSON.stringify(data.chat.slice(-300)));
-          // Sync ke Firestore juga
-          for(const m of data.chat){
-            try{await _fbFetch('/chat/'+m.id,'PUT',m);}catch(e){}
+          localStorage.setItem('chat_msgs',JSON.stringify(data.chat.slice(-200)));
+          // Sync ke Firestore dengan batch (lebih cepat dari one-by-one)
+          if (navigator.onLine && data.chat.length > 0) {
+            let batch = _fsDB.batch(), cnt = 0;
+            const col = _fsDB.collection('tenants').doc(targetNs).collection('chat');
+            for (const m of data.chat) {
+              if (m && m.id) {
+                batch.set(col.doc(m.id), _fsClean(m), {merge: false});
+                if (++cnt >= 450) { await batch.commit(); batch = _fsDB.batch(); cnt = 0; }
+              }
+            }
+            if (cnt > 0) await batch.commit();
           }
         }catch(e){console.warn('[Restore] chat error:',e);}
       }
@@ -9940,12 +10092,12 @@ const ChatModule = {
     }
     // Start poll
     clearInterval(this._pollTimer);
-    // AUDIT v3f: Naikkan dari 15s ke 60s — chat tidak perlu real-time tiap 15 detik.
-    // 60 detik cukup untuk notifikasi chat baru. Hemat 4x Reads.
-    // User yang mau cek manual bisa klik tombol Refresh.
+    // AUDIT v3h: Naikkan ke 5 menit — chat tidak real-time. User yang mau
+    // cek pesan baru bisa klik tombol Refresh atau pull-down.
+    // Hemat 5x reads dibanding 60s poll.
     this._pollTimer = setInterval(()=>{
       if(S.page==='chat') this.loadMessages();
-    }, 60000);
+    }, 300000); // 5 menit (sebelumnya 60 detik)
     // Attach swipe listeners after render
     setTimeout(()=>this._attachSwipe(), 200);
   },
@@ -9998,8 +10150,49 @@ const ChatModule = {
     CS(); await this.loadMessages();
   },
 
+  // AUDIT v3h: Auto-delete pesan chat/notifikasi > 24 jam dari cloud
+  // Dipanggil setelah loadMessages. Hapus pesan yang ts < (now - 24 jam).
+  // Background, tidak block UI. Hanya jalan 1x per 10 menit (debounce).
+  _lastAutoDeleteTs: 0,
+  async _autoDeleteOldChatMessages(msgs) {
+    const now = Date.now();
+    // Debounce: hanya jalan 1x per 10 menit
+    if (now - this._lastAutoDeleteTs < 600000) return;
+    this._lastAutoDeleteTs = now;
+    const cutoff = now - (24 * 60 * 60 * 1000); // 24 jam lalu
+    const oldMsgs = (msgs || []).filter(m => m.ts < cutoff);
+    if (oldMsgs.length === 0) return;
+    console.log('[Chat] Auto-delete', oldMsgs.length, 'pesan lama (>24 jam)');
+    // Hapus dari cloud (batch delete)
+    try {
+      let batch = _fsDB.batch();
+      let count = 0;
+      const col = _fsDB.collection('tenants').doc(_fbNs()).collection('chat');
+      for (const m of oldMsgs) {
+        if (m.id) {
+          batch.delete(col.doc(m.id));
+          if (++count >= 450) {
+            await batch.commit();
+            batch = _fsDB.batch();
+            count = 0;
+          }
+        }
+      }
+      if (count > 0) await batch.commit();
+      // Hapus dari localStorage juga
+      const localMsgs = await ChatDB.getAll();
+      const newLocalMsgs = localMsgs.filter(m => m.ts >= cutoff);
+      localStorage.setItem('chat_msgs', JSON.stringify(newLocalMsgs.slice(-200)));
+      console.log('[Chat] Auto-delete selesai:', oldMsgs.length, 'pesan dihapus dari cloud');
+    } catch(e) {
+      console.warn('[Chat] Auto-delete error:', e.message);
+    }
+  },
+
   // AUDIT v3f: Cache chat messages — track lastSeenTs supaya tidak fetch ulang
   // data yang sama. Hanya fetch pesan baru sejak lastSeen.
+  // AUDIT v3h: Chat NON-realtime. Hanya fetch saat user buka halaman chat.
+  // Tidak ada background poll. Auto-delete pesan > 24 jam dari cloud.
   _lastChatFetchTs: 0,
   _chatMsgCache: [],
   async loadMessages() {
@@ -10008,21 +10201,24 @@ const ChatModule = {
 
     let msgs = [];
     try {
-      // AUDIT v3f: Pakai cache jika masih valid (fresh < 30 detik)
-      // Hindari fetch ulang jika user hanya scroll/switch tab
+      // AUDIT v3h: Cache 2 menit (naikkan dari 30s) — chat tidak real-time
       const now = Date.now();
       const cacheAge = now - (this._lastChatFetchTs || 0);
-      if (this._chatMsgCache.length > 0 && cacheAge < 30000) {
+      if (this._chatMsgCache.length > 0 && cacheAge < 120000) {
         msgs = [...this._chatMsgCache].sort((a,b)=>a.ts-b.ts);
       } else {
+        // AUDIT v3h: Hanya ambil 100 pesan terbaru (limit + orderBy)
+        // Sebelumnya: ambil SEMUA koleksi chat (bisa ribuan pesan = ribuan reads)
         const r = await _fbFetch('/chat');
         if (r && typeof r==='object') {
           msgs = Object.values(r).filter(m=>m&&m.ts).sort((a,b)=>a.ts-b.ts);
-          // Update cache
+          // AUDIT v3h: Hanya simpan 200 pesan terakhir di cache (hemat memory)
+          if (msgs.length > 200) msgs = msgs.slice(-200);
           this._chatMsgCache = msgs;
           this._lastChatFetchTs = now;
-          // Save ke localStorage (bukan IDB) untuk persistence
           for (const m of msgs) await ChatDB.put(m);
+          // AUDIT v3h: Auto-delete pesan > 24 jam dari cloud (background, tidak block UI)
+          this._autoDeleteOldChatMessages(msgs).catch(()=>{});
         }
       }
     } catch(e) {
@@ -12627,22 +12823,27 @@ const FBSync = (() => {
     if (!navigator.onLine) return;
     _listenerGen++;
     const myGen = _listenerGen;
-    // ── AUDIT v3g: LAZY LISTENER — hanya attach jika halaman aktif butuh realtime ──
-    // Sebelumnya: 2 listener (absensi, sesi) aktif sepanjang waktu meski user
-    // di halaman Pengaturan/Chat yang tidak butuh realtime absensi/sesi.
-    // Sekarang: cek halaman aktif. Jika tidak butuh realtime, jangan attach.
-    // Listener akan di-attach saat user navigasi ke halaman yang butuh.
-    // Halaman yang butuh realtime absensi/sesi: dash, abs, kgd, rek, profil
+    // ── AUDIT v3h: LAZY LISTENER + DEDUP ──
+    // Hanya attach jika halaman aktif butuh realtime.
+    // Halaman yang butuh realtime absensi/sesi: dash, abs, kgd, rek, profil, kg, sub
     const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
     const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
     if (!REALTIME_PAGES.includes(currentPage)) {
       console.log('[FB Listeners] Skipped — page', currentPage, 'tidak butuh realtime');
-      // Tetap start health check supaya bisa attach jika user pindah ke halaman realtime
       _startHealthCheck(myGen);
       return;
     }
-    _REALTIME_STORES.forEach(store => _attachListener(store, myGen, 5000));
-    console.log('[FB Listeners] Started for', _REALTIME_STORES.length, 'realtime stores (gen', myGen+') — page:', currentPage);
+    // AUDIT v3h: Cek apakah listener untuk store ini sudah ada di generasi ini
+    // Jika sudah ada, skip (cegah duplicate listener yang menyebabkan 116 listeners)
+    _REALTIME_STORES.forEach(store => {
+      const existing = _unsubs.find(u => u._store === store && u._gen === myGen);
+      if (existing) {
+        console.log('[FB Listeners] Skip duplicate for', store, '(already attached)');
+        return;
+      }
+      _attachListener(store, myGen, 5000);
+    });
+    console.log('[FB Listeners] Started for', _REALTIME_STORES.length, 'realtime stores (gen', myGen+') — page:', currentPage, '— active listeners:', _unsubs.length);
     _startHealthCheck(myGen);
   }
 
@@ -12933,24 +13134,19 @@ const FBSync = (() => {
 })();
 
 // ════════════════════════════════════════════════════════════
-// BACKGROUND REFRESH — flush writes + tombstone sweep
-// AUDIT v3c: Hapus double chat poll. _bgTimer sudah cek chat tiap 30 detik,
-// tidak perlu setInterval(_chatBgCheck, 8000) terpisah.
-// AUDIT v3: Hapus periodic pull 30 detik (boros Reads).
-// Sekarang: hanya flush write queue tiap 30 detik + tombstone sweep 5 menit.
-// Pull cloud dilakukan on-demand saat user navigasi (dengan cache 5 menit)
-// atau saat user klik tombol Refresh di header.
+// BACKGROUND REFRESH — flush writes only (chat NON-realtime)
+// AUDIT v3h: Hapus _chatBgCheck dari background timer — chat tidak perlu
+// di-poll di background. Chat hanya di-fetch saat user buka halaman chat.
+// Ini hemat ~24,000 reads/hari untuk user yang tidak buka chat.
 // ════════════════════════════════════════════════════════════
 let _bgTimer = null;
 function _startBgRefresh() {
   if (_bgTimer) clearInterval(_bgTimer);
-  // AUDIT v3f: Naikkan dari 30s ke 60s — chat check + write flush tidak perlu tiap 30 detik.
-  // 60 detik cukup. Hemat 2x Reads untuk chat poll.
+  // AUDIT v3h: Naikkan ke 2 menit — hanya flush writes, tidak ada chat poll
   _bgTimer = setInterval(() => {
     if (!navigator.onLine || document.hidden) return;
     FBSync._flushWrites();
-    _chatBgCheck();
-  }, 60000); // 60 detik (sebelumnya 30 detik)
+  }, 120000); // 2 menit (sebelumnya 60 detik dengan chat poll)
   // ── Tombstone sweep tiap 5 menit (ZERO Firestore reads) ──
   if (window._bgSweepTimer) clearInterval(window._bgSweepTimer);
   window._bgSweepTimer = setInterval(() => {
@@ -12958,18 +13154,31 @@ function _startBgRefresh() {
     if (FBSync._sweepTombstones) FBSync._sweepTombstones().catch(()=>{});
   }, 300000); // 5 menit
 }
-// Saat tab/app kembali aktif: flush writes + restart listeners
-// AUDIT v3: Jangan pullAll saat visibilitychange (boros Reads).
-// Cukup restart listeners (realtime untuk absensi & sesi) + flush write queue.
-// Pull cloud hanya dilakukan on-demand saat user navigasi atau klik Refresh.
-// AUDIT v3e: Tambah auto-pull halaman aktif supaya data import di device lain
-// langsung muncul saat user kembali ke app.
+// Saat tab/app kembali aktif: flush writes + cek listener (jangan restart kalau masih aktif)
+// AUDIT v3h: Sebelumnya, visibilitychange selalu panggil startListeners() yang
+// bikin listener baru → 116 listener ganda. Sekarang: hanya flush writes +
+// cek apakah listener masih aktif. Jika ya, skip. Jika tidak, baru restart.
+let _lastVisChange = 0;
 document.addEventListener('visibilitychange', async () => {
   if (!document.hidden && navigator.onLine) {
+    // AUDIT v3h: Debounce — jangan trigger jika kurang dari 5 detik sejak terakhir
+    const now = Date.now();
+    if (now - _lastVisChange < 5000) return;
+    _lastVisChange = now;
+    
     FBSync._flushWrites();
-    // Restart listeners untuk memastikan aktif setelah background
-    FBSync.startListeners();
-    // Cek apakah hari sudah berganti sejak terakhir aktif
+    // AUDIT v3h: Hanya restart listeners jika BENAR-BENAR mati (jumlah < seharusnya)
+    // Jangan restart kalau masih aktif — itu penyebab 116 listener ganda
+    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub'];
+    const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
+    if (REALTIME_PAGES.includes(currentPage)) {
+      // Cek apakah listener masih aktif
+      if (FBSync._unsubs && FBSync._unsubs.length < 2) {
+        console.log('[visibilitychange] Listener mati, restart...');
+        FBSync.startListeners();
+      }
+    }
+    // Cek apakah hari sudah berganti
     const today = _todayLocal();
     const lastDay = localStorage.getItem('last_active_day');
     if (lastDay !== today) {
@@ -12979,15 +13188,6 @@ document.addEventListener('visibilitychange', async () => {
     }
     // Invalidate cache supaya nav berikutnya re-pull fresh data
     if (FBSync._invalidateCache) FBSync._invalidateCache();
-    // AUDIT v3e: Auto-pull halaman aktif (force fresh data dari cloud)
-    // Ini mengatasi kasus: user import backup di device A, device B yang
-    // sudah buka app tidak tahu ada update. Saat user kembali ke app
-    // (visibilitychange), auto-pull halaman aktif supaya data baru muncul.
-    if (S.page && S.page !== 'chat') {
-      setTimeout(() => {
-        if (FBSync.pullForNav) FBSync.pullForNav(S.page).catch(()=>{});
-      }, 500);
-    }
   }
 });
 window.addEventListener('online',  () => {
