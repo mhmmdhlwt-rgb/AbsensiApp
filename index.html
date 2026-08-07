@@ -5552,18 +5552,17 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
     const sebutan=isLaki?'Musyrif':'Musyrifah';
     const users=await DB.ga('users');
     const ms=users.filter(u=>u.role==='musyrifah');
+    // v18: Pengaturan dirapikan — section digabung & dikelompokkan ulang.
+    // Sebelumnya 9 section (beberapa hanya berisi 1 item) → sekarang 6 section.
     document.getElementById('set-body').innerHTML=`<div style="padding:0 15px">
-      <div style="margin-bottom:14px"><div class="sec-l">Profil ${labelLembaga}</div>
+
+      <div style="margin-bottom:14px"><div class="sec-l">Profil &amp; Tampilan</div>
         <div class="sc3">
           <div class="sr2" onclick="App.editSet('asrama','Nama ${labelLembaga}','${escJ(asrama)}')">
             <div class="si4">&#x2302;</div><div class="st3"><div class="sl3">Nama ${labelLembaga}</div><div class="sv">${asrama||'Belum diisi'}</div></div><div class="sa">\u2192</div>
           </div>
-        </div>
-      </div>
-      <div style="margin-bottom:14px"><div class="sec-l">Tampilan</div>
-        <div class="sc3">
           <div class="sr2">
-            <div class="si4">&#x25D1;</div><div class="st3"><div class="sl3">Mode Malam</div></div>
+            <div class="si4">&#x25D1;</div><div class="st3"><div class="sl3">Mode Malam</div><div class="sv">Tema gelap untuk kenyamanan mata</div></div>
             <label class="tw"><input type="checkbox" class="ti" id="dm-tog" ${S.theme==='dark'?'checked':''} onchange="toggleTheme()"><span class="ts"></span></label>
           </div>
           <div class="sr2">
@@ -5573,6 +5572,40 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
           </div>
         </div>
       </div>
+
+      <div style="margin-bottom:14px"><div class="sec-l">Akun ${sebutan}</div>
+        <div class="sc3">
+          ${ms.map(u=>`<div class="sr2">
+            <div style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0;cursor:pointer" onclick="App.editUser('${u.id}')">
+              ${u.foto
+                ?`<img src="${u.foto}" style="width:100%;height:100%;object-fit:cover">`
+                :`<div style="width:100%;height:100%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">${u.nama.charAt(0)}</div>`}
+            </div>
+            <div class="st3"><div class="sl3">${u.nama}</div><div class="sv">${sebutan}</div></div>
+            <button style="padding:4px 9px;border-radius:100px;background:var(--gs);border:1px solid rgba(13,181,127,.14);font-size:10px;font-weight:600;color:var(--a1);cursor:pointer" onclick="App.editUser('${u.id}')">Edit</button>
+          </div>`).join('')}
+          <div class="sr2" onclick="App.addUser()"><div class="si4">+</div><div class="st3"><div class="sl3">Tambah ${sebutan}</div></div><div class="sa">→</div></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px"><div class="sec-l">Master Data</div>
+        <div class="sc3">
+          <div class="sr2" onclick="App.kelolaKamar()"><div class="si4">&#x229E;</div><div class="st3"><div class="sl3">Kelola Kamar</div><div class="sv">Tambah, edit, hapus kamar</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="App._kelolaJenisIzin()"><div class="si4">&#x25A4;</div><div class="st3"><div class="sl3">Kelola Jenis Izin</div><div class="sv">Tambah/edit/hapus jenis izin</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="App._peraturanSheet()">
+            <div class="si4">&#x1F4DC;</div>
+            <div class="st3"><div class="sl3">Kelola Peraturan Pondok</div><div class="sv">Tambah, edit, hapus peraturan &amp; hukuman</div></div>
+            <div class="sa">\u2192</div>
+          </div>
+          <div class="sr2" onclick="App.importSnt()"><div class="si4">&#x2193;</div><div class="st3"><div class="sl3">Import Santri</div><div class="sv">Massal via teks/CSV</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="App._syncNfcAssalam()"><div class="si4" style="background:rgba(13,181,127,.12);border-color:rgba(13,181,127,.22);color:var(--a1)">\uD83D\uDCE1</div><div class="st3"><div class="sl3">Sinkron NFC UID Assalam</div><div class="sv">Cocokkan NFC UID dari data scan ke santri (by nama/NIS)</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="_dedupSubKegWithConfirm()">
+            <div class="si4" style="background:rgba(99,102,241,.09);border-color:rgba(99,102,241,.18)">&#x1F9F9;</div>
+            <div class="st3"><div class="sl3">Cek Duplikat Sub-Kegiatan</div><div class="sv">Hapus sub-kegiatan dengan nama sama (dengan konfirmasi)</div></div><div class="sa">\u2192</div>
+          </div>
+        </div>
+      </div>
+
       <div style="margin-bottom:14px"><div class="sec-l">Absensi NFC</div>
         <div class="sc3">
           <div class="sr2">
@@ -5591,67 +5624,30 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
           </div>
         </div>
       </div>
-      <div style="margin-bottom:14px"><div class="sec-l">${sebutan} &amp; Akun</div>
-        <div class="sc3">
-          ${ms.map(u=>`<div class="sr2">
-            <div style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0;cursor:pointer" onclick="App.editUser('${u.id}')">
-              ${u.foto
-                ?`<img src="${u.foto}" style="width:100%;height:100%;object-fit:cover">`
-                :`<div style="width:100%;height:100%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">${u.nama.charAt(0)}</div>`}
-            </div>
-            <div class="st3"><div class="sl3">${u.nama}</div><div class="sv">${sebutan}</div></div>
-            <button style="padding:4px 9px;border-radius:100px;background:var(--gs);border:1px solid rgba(13,181,127,.14);font-size:10px;font-weight:600;color:var(--a1);cursor:pointer" onclick="App.editUser('${u.id}')">Edit</button>
-          </div>`).join('')}
-          <div class="sr2" onclick="App.addUser()"><div class="si4">+</div><div class="st3"><div class="sl3">Tambah ${sebutan}</div></div><div class="sa">→</div></div>
-        </div>
-      </div>
 
-      <div style="margin-bottom:14px"><div class="sec-l">Kamar</div>
+      <div style="margin-bottom:14px"><div class="sec-l">Export &amp; Backup</div>
         <div class="sc3">
-          <div class="sr2" onclick="App.kelolaKamar()"><div class="si4">&#x229E;</div><div class="st3"><div class="sl3">Kelola Kamar</div><div class="sv">Tambah, edit, hapus kamar</div></div><div class="sa">\u2192</div></div>
-        </div>
-      </div>
-      <div style="margin-bottom:14px"><div class="sec-l">Perizinan</div>
-        <div class="sc3">
-          <div class="sr2" onclick="App._kelolaJenisIzin()"><div class="si4">&#x25A4;</div><div class="st3"><div class="sl3">Kelola Jenis Izin</div><div class="sv">Tambah/edit/hapus jenis izin</div></div><div class="sa">\u2192</div></div>
-        </div>
-      </div>
-      <div style="margin-bottom:14px"><div class="sec-l">Data</div>
-        <div class="sc3">
-          <div class="sr2" onclick="App.importSnt()"><div class="si4">&#x2193;</div><div class="st3"><div class="sl3">Import Santri</div><div class="sv">Massal via teks/CSV</div></div><div class="sa">\u2192</div></div>
-          <div class="sr2" onclick="App._syncNfcAssalam()"><div class="si4" style="background:rgba(13,181,127,.12);border-color:rgba(13,181,127,.22);color:var(--a1)">\uD83D\uDCE1</div><div class="st3"><div class="sl3">Sinkron NFC UID Assalam</div><div class="sv">Cocokkan NFC UID dari data scan ke santri existing (by nama/NIS)</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="Exp.showExportMenu()"><div class="si4">&#x2191;</div><div class="st3"><div class="sl3">Export Data Lengkap (JSON)</div><div class="sv">Pilih: Santri / Kegiatan / Perizinan & Sakit</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="Exp.showFormatExportMenu()"><div class="si4" style="background:rgba(22,163,74,.12);color:#16a34a">&#x1F4CA;</div><div class="st3"><div class="sl3">Export ke Excel/CSV/Word/PDF</div><div class="sv">Santri, Absensi, Perizinan, Pelanggaran, Sakit</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="Exp.backupJSON()"><div class="si4">&#x1F4BE;</div><div class="st3"><div class="sl3">Backup JSON (Semua Data)</div><div class="sv">Unduh semua data untuk backup/restore</div></div><div class="sa">\u2192</div></div>
           <div class="sr2" onclick="Exp.showImportBackup()"><div class="si4">&#x2B06;</div><div class="st3"><div class="sl3">Import / Pulihkan Backup</div><div class="sv">Kembalikan dari file JSON</div></div><div class="sa">\u2192</div></div>
-          <div class="sr2" onclick="App.showAudit()"><div class="si4">&#x2261;</div><div class="st3"><div class="sl3">Audit Log</div></div><div class="sa">\u2192</div></div>
+          <div class="sr2" onclick="App.showAudit()"><div class="si4">&#x2261;</div><div class="st3"><div class="sl3">Audit Log</div><div class="sv">Riwayat perubahan absensi terakhir</div></div><div class="sa">\u2192</div></div>
         </div>
       </div>
-      <div style="margin-bottom:14px"><div class="sec-l">Peraturan Pondok</div>
-        <div class="sc3">
-          <div class="sr2" onclick="App._peraturanSheet()">
-            <div class="si4">&#x1F4DC;</div>
-            <div class="st3"><div class="sl3">Kelola Peraturan Pondok</div><div class="sv">Tambah, edit, hapus peraturan &amp; hukuman</div></div>
-            <div class="sa">\u2192</div>
-          </div>
-        </div>
-      </div>
+
       <div style="margin-bottom:14px"><div class="sec-l">Bahaya</div>
         <div class="sc3">
+          <div class="sr2" onclick="App.confirmReset()">
+            <div class="si4" style="background:rgba(239,68,68,.09);border-color:rgba(239,68,68,.18)">!</div>
+            <div class="st3"><div class="sl3" style="color:#ef4444">Reset Semua Data</div><div class="sv">Reset absensi hari ini · hapus data permanen · reset semua</div></div><div class="sa">\u2192</div>
+          </div>
           <div class="sr2" onclick="App.logoutTenant()">
             <div class="si4" style="background:rgba(245,158,11,.09);border-color:rgba(245,158,11,.18)">&#x1F6AA;</div>
             <div class="st3"><div class="sl3">Keluar dari Pesantren/Asrama</div><div class="sv">Ganti ke pesantren lain di device ini</div></div><div class="sa">\u2192</div>
           </div>
-          <div class="sr2" onclick="_dedupSubKegWithConfirm()">
-            <div class="si4" style="background:rgba(99,102,241,.09);border-color:rgba(99,102,241,.18)">&#x1F9F9;</div>
-            <div class="st3"><div class="sl3">Cek Duplikat Sub-Kegiatan</div><div class="sv">Hapus sub-kegiatan dengan nama sama (dengan konfirmasi)</div></div><div class="sa">\u2192</div>
-          </div>
-          <div class="sr2" onclick="App.confirmReset()">
-            <div class="si4" style="background:rgba(239,68,68,.09);border-color:rgba(239,68,68,.18)">!</div>
-            <div class="st3"><div class="sl3" style="color:#ef4444">Reset Semua Data</div></div><div class="sa">\u2192</div>
-          </div>
         </div>
       </div>
+
       <div style="text-align:center;padding:14px 0 6px">
         <div style="font-size:24px;margin-bottom:6px">\uD83D\uDD4C</div>
         <div style="font-family:var(--fd);font-size:12px;font-weight:800;color:var(--t1)">${S._appName||((tipe==='pondok'?'Pondok Pesantren':'Asrama')+' '+asrama)}</div>
@@ -6434,8 +6430,23 @@ window.open(url,'_blank');
   confirmReset(){
     if(!S._adminMode){T('🔒 Hanya admin yang bisa reset!');return;}
     // AUDIT v3h: Reset granular — pilih apa yang di-reset
+    // v18: Tambah "Reset Absensi Hari Ini" (soft reset, tidak hapus record)
     OS(`<div class="sh">🗑 Reset Data</div><div class="sb" style="padding-bottom:70px">
-      <div style="font-size:12px;color:var(--t3);margin-bottom:14px;line-height:1.5">Pilih jenis data yang ingin dihapus. Data akan dihapus dari perangkat ini DAN cloud (semua perangkat). Tidak bisa dibatalkan.</div>
+      <div style="font-size:12px;color:var(--t3);margin-bottom:14px;line-height:1.5">Pilih jenis reset di bawah. <strong style="color:#f59e0b">Bagian atas (kuning)</strong> = reset status saja (data tetap ada). <strong style="color:#ef4444">Bagian bawah (merah)</strong> = hapus permanen dari perangkat &amp; cloud. Tidak bisa dibatalkan.</div>
+
+      <div style="font-size:9px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.7px;padding:0 3px;margin:10px 0 5px">↺ Reset Status (Tidak Menghapus Data)</div>
+      <div style="background:rgba(245,158,11,.06);border:1.5px solid rgba(245,158,11,.25);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App._confirmResetTodayAbsensi()">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:42px;height:42px;border-radius:14px;background:rgba(245,158,11,.14);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">↺</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:14px;color:#f59e0b">Reset Semua Absensi Hari Ini</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px">Set semua status absensi hari ini (semua sesi) kembali ke "belum diabsen". Sesi, santri, kegiatan, audit log, dll tetap aman. Sesi terkunci juga di-reset.</div>
+          </div>
+          <div style="color:#f59e0b;font-size:18px">→</div>
+        </div>
+      </div>
+
+      <div style="font-size:9px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:.7px;padding:0 3px;margin:14px 0 5px">🗑 Hapus Permanen (Tidak Bisa Dibatalkan)</div>
 
       <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:14px;margin-bottom:10px;cursor:pointer" onclick="App._resetGranular(['kegiatan','subKeg','anggota'])">
         <div style="display:flex;align-items:center;gap:12px">
@@ -6733,6 +6744,93 @@ window.open(url,'_blank');
     }catch(e){
       console.error('[Reset] error:', e);
       T('❌ Gagal menghapus: ' + (e.message||e), 5000);
+    }
+  },
+
+  // ── v18: Reset Semua Absensi Hari Ini (SOFT RESET) ──────────────────
+  // Beda dari reset granular lain: ini TIDAK menghapus record apa pun.
+  // Hanya set status seluruh absensi hari ini kembali ke 'none' (belum diabsen).
+  // Sesi yang sudah terkunci juga di-reset (perlu Mode Admin).
+  // Auto-pelanggaran 'alpha'/'terlambat' (status='belum') yang terkait
+  // absensi hari ini juga dihapus, supaya konsisten dengan "belum diabsen".
+  _confirmResetTodayAbsensi(){
+    if(!S._adminMode){T('🔒 Aktifkan Mode Admin untuk reset absensi hari ini.');return;}
+    const today=_todayLocal();
+    OS(`<div class="cw"><div class="ci3" style="background:rgba(245,158,11,.12);color:#f59e0b">↺</div><div class="ct3" style="color:#f59e0b">Reset Semua Absensi Hari Ini?</div>
+      <div class="cs3" style="text-align:left;line-height:1.6">
+        Tanggal: <strong>${today}</strong><br><br>
+        Semua status absensi hari ini (semua sesi, semua kegiatan) akan dikembalikan ke <strong>"belum diabsen"</strong>.
+        <br><br>
+        <strong>Yang terjadi:</strong><br>
+        ✅ Status hadir/sakit/izin/terlambat/alpha → <strong>none</strong> (belum diabsen)<br>
+        ✅ Sesi yang sudah <strong>terkunci</strong> juga ikut di-reset (statusnya jadi belum diabsen, lock-nya tetap)<br>
+        ✅ Pelanggaran <em>otomatis</em> alpha/terlambat (belum diproses) hari ini ikut dihapus<br>
+        <br>
+        <strong>TIDAK terhapus:</strong> sesi, santri, kegiatan, pelanggaran <em>manual</em>, perizinan, audit log, dsb.<br>
+        <em>Tindakan ini tidak bisa dibatalkan.</em>
+      </div>
+      <div class="cbs"><button class="cc" onclick="CS()">Batal</button><button class="co" style="background:#f59e0b" onclick="App._doResetTodayAbsensi()">↺ Reset Hari Ini</button></div></div>`);
+  },
+  async _doResetTodayAbsensi(){
+    if(!S._adminMode){T('🔒 Hanya admin!');return;}
+    CS();
+    T('⏳ Mereset absensi hari ini... jangan tutup aplikasi.', 6000);
+    const today=_todayLocal();
+    let resetCount=0, pelDeleted=0, errors=0;
+    try{
+      // Admin override → boleh ubah absensi walaupun sesi terkunci
+      S._adminOverride=true;
+      const [sesAll,absAll,pelAll]=await Promise.all([
+        DB.ga('sesi'), DB.ga('absensi'), DB.ga('pelanggaran')
+      ]);
+      // Sesi hari ini
+      const todaySesIds=new Set(sesAll.filter(s=>s.tanggal===today).map(s=>s.id));
+      // Absensi milik sesi hari ini
+      const todayAbs=absAll.filter(a=>todaySesIds.has(a.sesiId));
+      // Map pelanggaran auto by absId untuk lookup cepat
+      const pelAutoByAbs={};
+      for(const p of pelAll){
+        if(p.tipe==='auto'&&p.status==='belum'&&p.absId){
+          (pelAutoByAbs[p.absId]||(pelAutoByAbs[p.absId]=[])).push(p);
+        }
+      }
+      const oleh='[Admin] '+(S.user?.nama||'-');
+      for(const a of todayAbs){
+        try{
+          // Hapus pelanggaran auto yang terkait (alpha/terlambat)
+          if(a.status==='alpha'||a.status==='terlambat'){
+            const arr=pelAutoByAbs[a.id]||[];
+            for(const p of arr){
+              await DB.d('pelanggaran',p.id).catch(()=>{});
+              pelDeleted++;
+            }
+          }
+          // Reset status → none
+          a.status='none';
+          a.oleh=oleh;
+          a.updatedAt=Date.now();
+          await DB.p('absensi',a);
+          resetCount++;
+        }catch(e){
+          errors++;
+          console.warn('[ResetToday] absensi error',a.id,e.message);
+        }
+      }
+      // Flush writes ke cloud
+      if(FBSync&&FBSync._flushWrites){FBSync._flushWrites();}
+      if(FBSync&&FBSync._invalidateCache){FBSync._invalidateCache();}
+      T(`✅ ${resetCount} absensi di-reset ke "belum diabsen"${pelDeleted?` · ${pelDeleted} pelanggaran otomatis dihapus`:''}${errors?` · ${errors} error`:''}.`,5000);
+      // Re-render halaman aktif
+      if(S.page==='dash')await this.dash().catch(()=>{});
+      else if(S.page==='kg')await this.renderKg().catch(()=>{});
+      else if(S.page==='abs')await this.renderAbs(S._sesiId,S._skId).catch(()=>{});
+      else if(S.page==='rek')await this.renderRek().catch(()=>{});
+      else if(S.page==='pel')await this.renderPel().catch(()=>{});
+    }catch(e){
+      console.error('[ResetToday] error:',e);
+      T('❌ Gagal reset: '+(e.message||e),5000);
+    }finally{
+      delete S._adminOverride;
     }
   },
 
