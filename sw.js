@@ -10,7 +10,7 @@
 //      di index.html. Tanpa ini, user harus tutup semua tab untuk update.
 //   3. Navigasi fallback: jika network gagal DAN tidak ada cache, tampilkan
 //      halaman offline minimal (bukan layar putih).
-const CACHE_VERSION = 'absensi-santri-islami-v2-audit';
+const CACHE_VERSION = 'absensi-santri-islami-v17-audit';
 const OFFLINE_URL = './index.html'; // fallback — sama dengan app shell
 const APP_SHELL = [
   './',

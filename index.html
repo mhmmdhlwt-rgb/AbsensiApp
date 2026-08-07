@@ -1357,6 +1357,8 @@ const S={
   _sesiId:null,_skId:null,_icon:'📅',
   _profilId:null,_profilTab:'identitas',
   _pelFilter:'semua',_pelFotos:[],_tazirFotoB64:'',_pelSelSnt:new Set(),_pelListTab:'auto',
+  _pelSearch:'',_pelKgFilter:'semua',_pelSkFilter:'semua',
+  _uzurSearch:'',_uzurSelSnt:null,
 };
 
 function T(m,d=2200){const e=document.getElementById('toast');e.textContent=m;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),d)}
@@ -2109,6 +2111,7 @@ const App={
     const mn=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
     const now=new Date();
     const asrama=(await DB.g('settings','asrama'))?.value||'Assalam';
+    const tipe=(await DB.g('settings','lembaga_tipe'))?.value||'asrama';
     const aktif=snt.filter(x=>x.aktif).sort((a,b)=>a.nama.localeCompare(b.nama,'id'));
     const tses=ses.filter(x=>x.tanggal===today);
     const tabs=abs.filter(a=>tses.find(x=>x.id===a.sesiId));
@@ -2129,6 +2132,9 @@ const App={
       const kgSes=tses.filter(x=>x.kgId===k.id&&!x.skId);
       const allSubs=sk.filter(x=>x.kgId===k.id&&x.aktif&&!x.deleted).sort((a,b)=>a.urutan-b.urutan);
       // For each sub, find existing session or mark as "not started"
+      // ── v16: Card sub-kegiatan di dashboard sekarang CLICKABLE — klik
+      // card → navigasi ke halaman absensi (sama seperti tombol Absen).
+      // Tombol "Absen" dihilangkan karena seluruh card jadi click target.
       const subRows=allSubs.map((skItem,idx2)=>{
         const ss=tses.find(x=>x.skId===skItem.id);
         const done=ss&&(ss.status==='selesai'||ss.locked);
@@ -2136,24 +2142,27 @@ const App={
         const h3=sa.filter(a=>a.status==='hadir').length,t3=sa.length;
         const p3=t3?Math.round(h3/t3*100):0;
         const isLast=idx2===allSubs.length-1;
-        let subAbsenBtn='';
-        if(ss?.locked){subAbsenBtn='<span class="lock-b" style="font-size:9px">Terkunci</span>'}
-        else if(done){subAbsenBtn='<span class="done-b" style="font-size:9px">Selesai</span>'}
-        else if(ss){subAbsenBtn=`<button type="button" onclick="App.nav('abs',{sid:'${ss.id}',skId:'${skItem.id}',t:'${escJ(skItem.nama)}',s:'${escJ(k.nama)}'})" style="padding:6px 13px;border-radius:100px;background:var(--grad);color:#fff;font-size:11px;font-weight:700;border:none;cursor:pointer;box-shadow:0 3px 10px rgba(13,181,127,.35);white-space:nowrap">Absen</button>`}
-        else{subAbsenBtn=`<button type="button" onclick="App.qSubSesiDash('${skItem.id}','${k.id}')" style="padding:6px 13px;border-radius:100px;background:var(--grad);color:#fff;font-size:11px;font-weight:700;border:none;cursor:pointer;box-shadow:0 3px 10px rgba(13,181,127,.35);white-space:nowrap">Absen</button>`}
+        let subStatusBadge='';
+        if(ss?.locked){subStatusBadge='<span class="lock-b" style="font-size:9px">Terkunci</span>'}
+        else if(done){subStatusBadge='<span class="done-b" style="font-size:9px">Selesai</span>'}
+        // Click handler untuk card sub-kegiatan: navigasi ke absensi
+        const subClick=ss
+          ? `App.nav('abs',{sid:'${ss.id}',skId:'${skItem.id}',t:'${escJ(skItem.nama)}',s:'${escJ(k.nama)}'})`
+          : `App.qSubSesiDash('${skItem.id}','${k.id}')`;
         const subProg=t3>0?`<div style="display:flex;align-items:center;gap:4px;margin-top:2px"><div style="flex:1;height:2px;background:var(--dv);border-radius:100px;overflow:hidden"><div style="width:${p3}%;height:100%;background:var(--grad)"></div></div><span style="font-size:9px;color:var(--t3)">${h3}/${t3}</span></div>`:'';
-        return`<div style="display:flex;align-items:center;gap:9px;padding:8px 13px 8px 18px;border-bottom:${!isLast?'1px solid var(--dv)':'none'};background:rgba(13,181,127,.02)">
+        return`<div style="display:flex;align-items:center;gap:9px;padding:8px 13px 8px 18px;border-bottom:${!isLast?'1px solid var(--dv)':'none'};background:rgba(13,181,127,.02);cursor:pointer;transition:background .15s" onclick="${subClick}" onmouseover="this.style.background='rgba(13,181,127,.06)'" onmouseout="this.style.background='rgba(13,181,127,.02)'">
           <div style="width:5px;height:5px;border-radius:50%;background:var(--a1);flex-shrink:0;margin-top:1px"></div>
           <div style="flex:1;min-width:0">
             <div style="font-weight:600;font-size:12px;color:var(--t2)">${skItem.nama}</div>
             ${subProg}
           </div>
-          ${subAbsenBtn}
+          ${subStatusBadge||'<span style="padding:6px 13px;border-radius:100px;background:var(--grad);color:#fff;font-size:11px;font-weight:700;border:none;white-space:nowrap">Absen</span>'}
         </div>`;
       }).join('');
       // Main kegiatan row
+      // ── v16: Card kegiatan induk di dashboard sekarang CLICKABLE — klik
+      // card → navigasi ke detail kegiatan (kgd).
       let mainHtml='';
-      // Always show main kegiatan row with Absen button
       {
         const sx=kgSes.length?kgSes[0]:null;
         const sa=sx?abs.filter(a=>a.sesiId===sx.id):[];
@@ -2161,13 +2170,12 @@ const App={
         const p2=t2?Math.round(h2/t2*100):0;
         const done=sx&&(sx.status==='selesai'||sx.locked);
         const locked=sx?.locked||false;
-        // No Absen button on main row - only status indicator
         let absenBtn='';
         if(locked){absenBtn='<span class="lock-b" style="flex-shrink:0">Terkunci</span>'}
         else if(done){absenBtn='<span class="done-b" style="flex-shrink:0">Selesai</span>'}
-        else{absenBtn='<span style="font-size:10px;color:var(--t4);flex-shrink:0">•••</span>'}
+        else{absenBtn='<span style="font-size:11px;color:var(--a1);flex-shrink:0;font-weight:700;opacity:.7">›</span>'}
         const progBar=t2>0?`<div style="display:flex;align-items:center;gap:4px;margin-top:3px"><div style="flex:1;height:3px;background:var(--dv);border-radius:100px;overflow:hidden"><div style="width:${p2}%;height:100%;background:var(--grad)"></div></div><span style="font-size:9px;color:var(--t3)">${h2}/${t2}</span></div>`:'';
-        mainHtml=`<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-bottom:${allSubs.length?'1px solid var(--dv)':'none'}">
+        mainHtml=`<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-bottom:${allSubs.length?'1px solid var(--dv)':'none'};cursor:pointer;transition:background .15s" onclick="App.nav('kgd',{id:'${k.id}',t:'${escJ(k.nama)}'})" onmouseover="this.style.background='rgba(13,181,127,.04)'" onmouseout="this.style.background='transparent'">
           <div style="width:40px;height:40px;border-radius:13px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 4px 14px rgba(13,181,127,.25)">${k.icon}</div>
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:13px;color:var(--t1)">${k.nama}</div>
@@ -2302,6 +2310,7 @@ const App={
     await this.nav('abs',{sid,t:k?.nama||'Absensi',s:today});
   },
   async qSubSesiDash(skId,kgId){
+    try{
     const today=_todayLocal();const sid='ses_'+today+'_'+kgId+'_'+skId;
     let sx=await DB.g('sesi',sid);
     if(!sx){sx={id:sid,tanggal:today,kgId,skId,status:'draft',createdAt:Date.now(),locked:false};await DB.p('sesi',sx);
@@ -2324,6 +2333,7 @@ const App={
     }
     const sk=await DB.g('subKeg',skId),k=await DB.g('kegiatan',kgId);
     await this.nav('abs',{sid,skId,t:sk?.nama||'Absensi',s:(k?.nama||'')+' · '+today});
+    }catch(e){console.error('[qSubSesiDash] error:',e);T('❌ Gagal buka absensi: '+(e.message||e));}
   },
 
 
@@ -2456,13 +2466,22 @@ const App={
         <div style="font-family:var(--fd);font-size:14px;font-weight:800;color:var(--t1)">Sub Kegiatan</div>
         <button style="padding:5px 12px;border-radius:100px;background:var(--grad);color:#fff;font-size:11px;font-weight:700;cursor:pointer;border:none" onclick="App.addSub('${kgId}')">+ Tambah</button>
       </div>
-      ${subs.map(s=>`<div style="display:flex;align-items:center;gap:9px;padding:11px;background:var(--su);border:1px solid var(--sub);border-radius:var(--r4);margin-bottom:7px;backdrop-filter:blur(20px);cursor:pointer" onclick="App.nav('sub',{id:'${s.id}',t:'${escJ(s.nama)}',s:'${escJ(k.nama)}'})">
+      ${subs.map(s=>{
+        // ── v17: Tampilkan waktu + hari di setiap card sub-kegiatan ──
+        const sTimeBadge=App._timeBadgeHtml(s,k);
+        const sDayBadge=App._dayBadgeHtml(s,k);
+        const scheduleLine=(sTimeBadge||sDayBadge)?`<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:5px;align-items:center">${sTimeBadge||''}${sDayBadge?`<span style="display:inline-flex;flex-wrap:wrap;gap:2px">${sDayBadge}</span>`:''}</div>`:'';
+        return `<div style="display:flex;align-items:center;gap:9px;padding:11px;background:var(--su);border:1px solid var(--sub);border-radius:var(--r4);margin-bottom:7px;backdrop-filter:blur(20px);cursor:pointer" onclick="App.nav('sub',{id:'${s.id}',t:'${escJ(s.nama)}',s:'${escJ(k.nama)}'})">
         <div style="width:36px;height:36px;border-radius:11px;background:var(--gs);border:1px solid rgba(13,181,127,.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--a1)">${s.nama.charAt(0)}</div>
-        <div style="flex:1"><div style="font-weight:600;font-size:13px;color:var(--t1)">${s.nama}</div></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:13px;color:var(--t1)">${s.nama}</div>
+          ${scheduleLine}
+        </div>
         <button style="width:28px;height:28px;border-radius:50%;background:var(--su2);border:none;font-size:12px;cursor:pointer" onclick="event.stopPropagation();App.editSub('${s.id}')">&#x270E;</button>
         <button style="width:28px;height:28px;border-radius:50%;background:var(--su2);border:none;font-size:12px;cursor:pointer" onclick="event.stopPropagation();App.delSub('${s.id}','${escJ(s.nama)}')">&#x2715;</button>
         <span style="font-size:13px;color:var(--t4)">\u2192</span>
-      </div>`).join('')}
+      </div>`;
+      }).join('')}
       ${!subs.length?'<div class="empty" style="padding:20px 0"><div class="es">Belum ada sub kegiatan.</div></div>':''}
     </div>`;
   },
@@ -2538,8 +2557,18 @@ const App={
     const _skBody=S._skId?await DB.g('subKeg',S._skId):null;
     const isShalat=_isShalatKegiatan(_kgBody?.nama,_skBody?.nama);
     const uzurAktifMap=isShalat?await this._uzurAktifMap(sx.tanggal):{};
+    // ── v17: Header jadwal (jam + hari + tombol edit) di paling atas halaman absensi ──
+    // Untuk sub-kegiatan: tampilkan jadwal efektif (jam & hari sub sendiri atau waris
+    // dari kegiatan induk). Untuk kegiatan tanpa sub: tampilkan jadwal kegiatan induk.
+    let _scheduleHeaderHtml='';
+    if(_skBody){
+      _scheduleHeaderHtml=this._scheduleHeaderHtml(_skBody,_kgBody,`App.editSub('${_skBody.id}')`);
+    } else if(_kgBody){
+      _scheduleHeaderHtml=this._scheduleHeaderHtml(_kgBody,null,`App.editKg('${_kgBody.id}')`);
+    }
     document.getElementById('abs-body').innerHTML=`
       <div style="padding:0 15px 9px">
+        ${_scheduleHeaderHtml}
         <!-- Catatan Kegiatan — card tanpa label -->
         ${catatan?`<div style="position:relative;background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:9px 36px 9px 11px;margin-bottom:10px;backdrop-filter:blur(20px)">
           <div id="catatan-view" style="font-size:11px;color:var(--t2);line-height:1.55;white-space:pre-wrap;word-break:break-word">${catatan}</div>
@@ -2871,11 +2900,79 @@ const App={
   },
   async lockSesi(sid){
     OS(`<div class="cw"><div class="ci3">\uD83D\uDD12</div><div class="ct3">Kunci Sesi?</div>
-      <div class="cs3">Data tidak bisa diubah setelah dikunci.</div>
+      <div class="cs3">Semua status (hadir, sakit, izin, terlambat) tetap tercatat. Santri yang belum diabsen akan otomatis ditandai <b style="color:#ef4444">Alpha</b>. Data tidak bisa diubah setelah dikunci.</div>
       <div class="cbs"><button class="cc" onclick="CS()">Batal</button>
       <button class="co" style="background:var(--grad)" onclick="App._doLock('${sid}')">Kunci</button></div></div>`);
   },
-  async _doLock(sid){const sx=await DB.g('sesi',sid);if(sx){sx.locked=true;sx.status='selesai';await DB.p('sesi',sx)}CS();T('Terkunci!');await this.renderAbs(sid,S._skId)},
+  // ── v16: Manual lock sekarang memproses santri yang belum diabsen ('none')
+  // → otomatis jadi 'alpha' (sesuai permintaan user). Status lain (hadir,
+  // sakit, izin, terlambat) tetap utuh, tidak diubah. Pelanggaran auto
+  // 'Alpha' juga dibuat untuk setiap santri yang baru jadi alpha.
+  async _doLock(sid){
+    const sx=await DB.g('sesi',sid);
+    if(!sx){CS();T('Sesi tidak ditemukan!');return}
+    let alphaCount=0,pelCount=0;
+    try{
+      const today=sx.tanggal||_todayLocal();
+      const [allAbs,snt,kg,sk,allPel]=await Promise.all([
+        DB.ga('absensi'),DB.ga('santri'),DB.g('kegiatan',sx.kgId||''),
+        (sx.skId?DB.g('subKeg',sx.skId):Promise.resolve(null)),DB.ga('pelanggaran')
+      ]);
+      const sntM=mapBy(snt,'id');
+      const pelByAbs={};for(const p of allPel)if(p.absId)pelByAbs[p.absId]=p;
+      // Cek izin/sakit/uzur aktif (sama seperti auto-lock)
+      const izinMap=await this._izinAktifMap(today);
+      const sakitMap=await this._sakitAktifMap(today);
+      const isShalat=_isShalatKegiatan(kg?.nama,sk?.nama);
+      const uzurMap=isShalat?await this._uzurAktifMap(today):{};
+      // Proses absensi yang masih 'none'
+      const targets=allAbs.filter(a=>a.sesiId===sid&&a.status==='none');
+      for(const a of targets){
+        let finalStatus='alpha';
+        let finalOleh='Sistem (Lock — belum diabsen)';
+        let finalPid=null;
+        if(isShalat&&uzurMap[a.sntId]){
+          finalStatus='uzur';finalOleh='Sistem (Uzur aktif — lock)';
+        } else if(sakitMap[a.sntId]){
+          finalStatus='sakit';finalOleh='Sistem (Catatan Sakit — lock)';
+        } else if(izinMap[a.sntId]){
+          finalStatus='izin';finalOleh='Sistem (Perizinan — lock)';finalPid=izinMap[a.sntId];
+        }
+        a.status=finalStatus;a.oleh=finalOleh;a.updatedAt=Date.now();
+        if(finalPid)a.perizinanId=finalPid;
+        await DB.p('absensi',a);
+        if(finalStatus==='alpha'){
+          alphaCount++;
+          if(!pelByAbs[a.id]){
+            const sn=sntM[a.sntId];
+            const newPel={id:uid(),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
+              kgId:sx.kgId,kgNama:kg?.nama||'-',skId:sx.skId||null,skNama:sk?.nama||'',
+              tanggal:today,
+              status:'belum',catatanHukuman:'',fotoHukuman:'',
+              pelanggaranJenis:'Alpha',
+              autoSource:'manual_lock',
+              createdAt:Date.now(),updatedAt:Date.now()};
+            await DB.p('pelanggaran',newPel);
+            pelByAbs[a.id]=newPel;
+            pelCount++;
+          }
+        }
+      }
+      sx.locked=true;sx.status='selesai';sx.updatedAt=Date.now();
+      await DB.p('sesi',sx);
+      CS();
+      T(`Terkunci! ${alphaCount} santri belum diabsen ditandai Alpha${pelCount>0?` & ${pelCount} pelanggaran tercatat`:''}.`,3500);
+    }catch(e){
+      console.warn('[ManualLock] error:',e);
+      // Fallback: minimal tetap kunci sesi
+      sx.locked=true;sx.status='selesai';sx.updatedAt=Date.now();
+      await DB.p('sesi',sx);
+      CS();T('Terkunci! (dengan error pemrosesan alpha)');
+    }
+    await this.renderAbs(sid,S._skId);
+    if(S.page==='pel')await this.renderPel().catch(()=>{});
+    if(S.page==='dash')await this.dash().catch(()=>{});
+  },
 
   // ═══════════════════════════════════════════════════════════════
   // AUTO-LOCK — Ketika jam selesai sub-kegiatan sudah lewat:
@@ -2934,6 +3031,13 @@ const App={
         let sx=ses.find(x=>x.id===sid);
         if(sx&&sx.locked)continue; // sudah dikunci sebelumnya (manual/auto)
 
+        // ── FIX v17: Deklarasi isShalat/uzurMapAuto/sakitMapAuto DI LUAR if/else
+        // Sebelumnya const dideklarasikan di dalam blok if(!sx){...}else{...}
+        // sehingga tidak terlihat di loop alpha di bawah → ReferenceError
+        // yang ditelan try/catch → auto-lock tidak pernah selesai.
+        const isShalat = _isShalatKegiatan(parent?.nama, s?.nama);
+        const uzurMapAuto = isShalat ? await this._uzurAktifMap(today) : {};
+        const sakitMapAuto = await this._sakitAktifMap(today);
         // ── AUDIT v3m: CRITICAL FIX — Jangan auto-create absensi jika session
         // tidak ada di local IDB ──
         // Sebelumnya: jika session tidak ada lokal, kode membuat record absensi
@@ -2962,10 +3066,6 @@ const App={
             }
           }
           // Session tidak ada di cloud juga — aman untuk create + auto-lock
-          const isShalat = _isShalatKegiatan(parent?.nama, s?.nama);
-          const uzurMapAuto = isShalat ? await this._uzurAktifMap(today) : {};
-          const sakitMapAuto = await this._sakitAktifMap(today);
-
           sx={id:sid,tanggal:today,kgId:s.kgId,skId:s.id,status:'draft',createdAt:Date.now(),locked:false};
           await DB.p('sesi',sx);
           const angSk=ang.filter(a=>a.skId===s.id);
@@ -2981,13 +3081,9 @@ const App={
             }
             await DB.p('absensi',{id:absDetId(sid,sntId),sesiId:sid,sntId,status:_st,perizinanId:_pid,oleh:_oleh,updatedAt:Date.now()});
           }
-        } else {
-          // Session sudah ada di lokal — aman untuk auto-lock
-          // Pastikan tidak menimpa status yang sudah valid (hadir/izin/sakit/uzur/terlambat)
-          const isShalat = _isShalatKegiatan(parent?.nama, s?.nama);
-          const uzurMapAuto = isShalat ? await this._uzurAktifMap(today) : {};
-          const sakitMapAuto = await this._sakitAktifMap(today);
         }
+        // Session sudah ada di lokal — aman untuk auto-lock.
+        // isShalat/uzurMapAuto/sakitMapAuto sudah dideklarasi di luar.
         // Tandai semua yang masih 'none' (belum diabsen sama sekali) jadi 'alpha'
         // sekaligus catat pelanggaran auto 'Alpha' supaya masuk ke daftar pelanggaran
         // ── AUDIT v3d FIX: Hanya yang BENAR-BENAR 'none' yang jadi alpha ──
@@ -3055,6 +3151,10 @@ const App={
         const sid='ses_'+today+'_'+k.id;
         let sx=ses.find(x=>x.id===sid);
         if(sx&&sx.locked)continue;
+        // ── FIX v17: Deklarasi di luar if(!sx){...} — sama dengan loop sub-kegiatan ──
+        const isShalatK = _isShalatKegiatan(k?.nama, null);
+        const uzurMapAutoK = isShalatK ? await this._uzurAktifMap(today) : {};
+        const sakitMapAutoK = await this._sakitAktifMap(today);
         // ── AUDIT v3m: CRITICAL FIX — sama dengan loop sub-kegiatan ──
         // Jika session tidak ada lokal, cek cloud dulu. Jika ada di cloud,
         // skip auto-lock (onSnapshot akan sync data yang benar).
@@ -3071,9 +3171,6 @@ const App={
             }
           }
           // Session tidak ada di cloud — aman untuk create + auto-lock
-          const isShalatK = _isShalatKegiatan(k?.nama, null);
-          const uzurMapAutoK = isShalatK ? await this._uzurAktifMap(today) : {};
-          const sakitMapAutoK = await this._sakitAktifMap(today);
           sx={id:sid,tanggal:today,kgId:k.id,skId:null,status:'draft',createdAt:Date.now(),locked:false};
           await DB.p('sesi',sx);
           const targets=snt.filter(x=>x.aktif).map(x=>x.id);
@@ -4811,8 +4908,18 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
   // ============================================================
   async renderPel(){
     S._pelFilter=S._pelFilter||'semua';
+    S._pelSearch=S._pelSearch||'';
+    S._pelKgFilter=S._pelKgFilter||'semua';
+    S._pelSkFilter=S._pelSkFilter||'semua';
     const [pel,snt,kg,sk,per]=await Promise.all([DB.ga('pelanggaran'),DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg'),DB.ga('peraturan')]);
     const sntM=mapBy(snt,'id'),kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
+    // ── v16: List kegiatan & sub-kegiatan untuk dropdown filter
+    const kgActiveList=kg.filter(k=>!k.deleted).sort((a,b)=>a.urutan-b.urutan);
+    const skActiveList=sk.filter(s=>!s.deleted);
+    // Sub-kegiatan yang ditampilkan di dropdown tergantung kegiatan yang dipilih
+    const skDropdownList=S._pelKgFilter==='semua'
+      ? skActiveList
+      : skActiveList.filter(s=>s.kgId===S._pelKgFilter);
     // Stats
     const tot=pel.length,belum=pel.filter(p=>p.status==='belum').length,sudah=pel.filter(p=>p.status==='sudah').length;
     const manual=pel.filter(p=>p.tipe==='manual').length,auto=pel.filter(p=>p.tipe==='auto').length;
@@ -4823,8 +4930,18 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
     // Per kegiatan stats
     const kgStats={};pel.forEach(p=>{if(!kgStats[p.kgId])kgStats[p.kgId]=0;kgStats[p.kgId]++});
     const topKg=Object.entries(kgStats).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    // Filter
-    const f=S._pelFilter==='belum'?pel.filter(p=>p.status==='belum'):S._pelFilter==='sudah'?pel.filter(p=>p.status==='sudah'):pel;
+    // Filter status
+    const fStatus=S._pelFilter==='belum'?pel.filter(p=>p.status==='belum'):S._pelFilter==='sudah'?pel.filter(p=>p.status==='sudah'):pel;
+    // ── v16: Filter kegiatan/sub-kegiatan + search nama santri
+    const q=(S._pelSearch||'').toLowerCase().trim();
+    const fKg=S._pelKgFilter==='semua'?fStatus:fStatus.filter(p=>p.kgId===S._pelKgFilter);
+    const fSk=S._pelSkFilter==='semua'?fKg:fKg.filter(p=>p.skId===S._pelSkFilter);
+    const f=q===''?fSk:fSk.filter(p=>{
+      const sn=sntM[p.sntId];
+      const nm=(sn?.nama||'').toLowerCase();
+      const dsc=(p.deskripsi||'').toLowerCase();
+      return nm.includes(q)||dsc.includes(q);
+    });
     // Split auto vs manual
     const fAuto=f.filter(p=>p.tipe==='auto');
     const fManual=f.filter(p=>p.tipe==='manual');
@@ -4874,6 +4991,8 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
         ${g.items.map(renderCard).join('')}
       </div>`;
     }).join('');
+    // ── v16: Cek apakah ada filter aktif (untuk menampilkan chip "Reset")
+    const hasFilter=q!==''||S._pelKgFilter!=='semua'||S._pelSkFilter!=='semua';
     document.getElementById('pel-body').innerHTML=`<div style="padding:0 15px 15px">
       <!-- Stat cards -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">
@@ -4910,6 +5029,34 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
         <div style="display:flex;gap:7px">
           <button onclick="App._pelAksiPop()" title="Aksi & Laporan" style="flex:1;padding:11px 14px;border-radius:var(--r3);background:var(--gs);border:1.5px solid rgba(13,181,127,.2);font-size:11px;cursor:pointer;color:var(--a1);display:flex;align-items:center;gap:5px;font-weight:700">💬 Laporan</button>
         </div>
+      </div>
+      <!-- ── v16: Search + Filter Kegiatan/Sub-kegiatan ── -->
+      <div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:10px 11px;margin-bottom:10px;backdrop-filter:blur(20px)">
+        <div style="display:flex;align-items:center;gap:7px;background:var(--inp);border:1.5px solid var(--dv);border-radius:var(--r2);padding:9px 11px;margin-bottom:8px">
+          <span style="color:var(--t4);font-size:14px">🔍</span>
+          <input id="pel-search-inp" class="fi" placeholder="Cari nama santri / deskripsi..." value="${esc(S._pelSearch)}" oninput="App._pelSearchInput(this.value)" style="border:none;padding:0;background:transparent;flex:1;font-size:13px;outline:none">
+          ${S._pelSearch?`<button onclick="App._pelSearchInput('')" style="background:transparent;border:none;font-size:14px;color:var(--t4);cursor:pointer;padding:0 4px">✕</button>`:''}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+          <div>
+            <div style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;padding:0 2px">Kegiatan</div>
+            <select class="fi" style="padding:8px 10px;font-size:12px;background:var(--inp);border:1.5px solid var(--dv);border-radius:var(--r2);width:100%" onchange="App._pelKgFilterChange(this.value)">
+              <option value="semua" ${S._pelKgFilter==='semua'?'selected':''}>Semua Kegiatan</option>
+              ${kgActiveList.map(k=>`<option value="${k.id}" ${S._pelKgFilter===k.id?'selected':''}>${esc(k.nama)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;padding:0 2px">Sub Kegiatan</div>
+            <select class="fi" style="padding:8px 10px;font-size:12px;background:var(--inp);border:1.5px solid var(--dv);border-radius:var(--r2);width:100%" onchange="App._pelSkFilterChange(this.value)" ${S._pelKgFilter==='semua'?'disabled':''}>
+              <option value="semua" ${S._pelSkFilter==='semua'?'selected':''}>${S._pelKgFilter==='semua'?'(Pilih kegiatan dulu)':'Semua Sub'}</option>
+              ${skDropdownList.sort((a,b)=>a.urutan-b.urutan).map(s=>`<option value="${s.id}" ${S._pelSkFilter===s.id?'selected':''}>${esc(s.nama)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        ${hasFilter?`<div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--t3)">
+          <span>Menampilkan <b style="color:var(--t1)">${fAuto.length+fManual.length}</b> dari ${tot} pelanggaran</span>
+          <button onclick="App._pelResetFilter()" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#ef4444;font-size:10px;font-weight:700;padding:4px 10px;border-radius:100px;cursor:pointer">✕ Reset Filter</button>
+        </div>`:''}
       </div>
       <!-- Tab Alpha/Terlambat vs Non Alpha (tidak collapsible) -->
       <div style="display:flex;justify-content:center;gap:0;margin:10px 0 14px;background:var(--su2);border:1.5px solid var(--dv);border-radius:100px;padding:3px">
@@ -4952,6 +5099,28 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
   },
   _setPelListTab(tab){
     S._pelListTab=tab;
+    this.renderPel();
+  },
+  // ── v16: Search + filter handlers for Pelanggaran
+  _pelSearchDebounce:null,
+  _pelSearchInput(val){
+    S._pelSearch=val||'';
+    // Debounce supaya tidak render tiap ketik (performant untuk list besar)
+    clearTimeout(this._pelSearchDebounce);
+    this._pelSearchDebounce=setTimeout(()=>this.renderPel(),250);
+  },
+  _pelKgFilterChange(val){
+    S._pelKgFilter=val||'semua';
+    // Reset sub-filter kalau kegiatan diganti (sub lama mungkin tidak valid)
+    S._pelSkFilter='semua';
+    this.renderPel();
+  },
+  _pelSkFilterChange(val){
+    S._pelSkFilter=val||'semua';
+    this.renderPel();
+  },
+  _pelResetFilter(){
+    S._pelSearch='';S._pelKgFilter='semua';S._pelSkFilter='semua';
     this.renderPel();
   },
   _tazirPop(pelId){
@@ -5637,31 +5806,83 @@ window.open(url,'_blank');
   _timeBadgeHtml(item,parent){
     // Kegiatan induk (parent=null): pakai jam sendiri saja.
     // Sub-kegiatan (parent!=null): pakai jam sendiri; kalau kosong, waris dari parent.
+    // ── v16: Bagian "hari" (text & box) dihilangkan dari tampilan card
+    // (sesuai permintaan user). Fitur hari tetap aktif: data hariAktif
+    // tetap disimpan & dipakai untuk filter jadwal aktif harian, hanya
+    // badge visual-nya yang tidak ditampilkan di card.
+    // ── v17: Badge "↩ warisan" dihilangkan (hanya tampilkan jam-nya).
     const isSub=!!parent;
     const jm=item.jamMulai||'';
     const js=item.jamSelesai||'';
-    const days=item.hariAktif||null;
-    const dayNames=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
     // Kasus sub-kegiatan tanpa jam sendiri → coba waris dari parent
     if(isSub&&(!jm||!js)&&parent){
       const pjm=parent.jamMulai||'';
       const pjs=parent.jamSelesai||'';
       if(pjm&&pjs){
-        const pDays=parent.hariAktif||null;
-        let pDayStr='setiap hari';
-        if(Array.isArray(pDays)&&pDays.length>0&&pDays.length<7){
-          pDayStr=pDays.slice().sort((a,b)=>a-b).map(d=>dayNames[d]||'?').join(',');
-        }
-        return `<span class="time-badge" style="background:rgba(201,162,39,.14);color:#a87a00"><span>\u23F0</span> ${pjm}-${pjs}</span><span class="time-badge empty" style="background:rgba(201,162,39,.14);color:#a87a00">\u21A9 warisan</span>${pDayStr!=='setiap hari'?'<span class="time-badge empty">'+pDayStr+'</span>':''}`;
+        return `<span class="time-badge" style="background:rgba(201,162,39,.14);color:#a87a00"><span>\u23F0</span> ${pjm}-${pjs}</span>`;
       }
       return ''; // sub tidak punya jam & parent juga tidak
     }
     if(!jm&&!js)return '';
-    let dayStr='setiap hari';
-    if(Array.isArray(days)&&days.length>0&&days.length<7){
-      dayStr=days.slice().sort((a,b)=>a-b).map(d=>dayNames[d]||'?').join(',');
+    return `<span class="time-badge"><span>\u23F0</span> ${jm||'?'}-${js||'?'}</span>`;
+  },
+  // ── v17: Day badge helper — render chip hari aktif (Min/Sen/Sel/...) ──
+  // Dipakai di halaman kgd (detail kegiatan) supaya user tahu hari aktif tiap sub.
+  // Jika parent disediakan dan sub tidak punya hari sendiri, waris dari parent.
+  // Jika keduanya tidak punya hari → kembalikan 'Setiap hari' chip.
+  _dayBadgeHtml(item,parent){
+    const dayNames=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+    let days=Array.isArray(item.hariAktif)&&item.hariAktif.length?item.hariAktif:null;
+    if(!days&&parent){
+      days=Array.isArray(parent.hariAktif)&&parent.hariAktif.length?parent.hariAktif:null;
     }
-    return `<span class="time-badge"><span>\u23F0</span> ${jm||'?'}-${js||'?'}</span>${dayStr!=='setiap hari'?'<span class="time-badge empty">'+dayStr+'</span>':''}`;
+    if(!days||!days.length){
+      return `<span class="day-badge-chip" style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:100px;background:var(--gs);border:1px solid var(--dv);font-size:9px;font-weight:600;color:var(--t3)">Setiap hari</span>`;
+    }
+    return days.slice().sort((a,b)=>a-b).map(d=>{
+      const lbl=dayNames[d]||'?';
+      return `<span class="day-badge-chip" style="display:inline-flex;align-items:center;justify-content:center;min-width:22px;padding:2px 5px;border-radius:6px;background:rgba(13,181,127,.1);border:1px solid rgba(13,181,127,.2);font-size:9px;font-weight:700;color:var(--a1)">${lbl}</span>`;
+    }).join('');
+  },
+  // ── v17: Jadwal lengkap (jam + hari) untuk header halaman absensi ──
+  // Mengembalikan HTML blok "⏰ 17:00-17:30 · Min, Sen, ..." dengan tombol edit.
+  // Effective jam & hari: sub sendiri atau waris dari parent.
+  _scheduleHeaderHtml(item,parent,editFn){
+    const isSub=!!parent;
+    let jm=item.jamMulai||'';
+    let js=item.jamSelesai||'';
+    let days=Array.isArray(item.hariAktif)&&item.hariAktif.length?item.hariAktif:null;
+    let inherited=false;
+    if(isSub&&(!jm||!js)&&parent){
+      jm=jm||(parent.jamMulai||'');
+      js=js||(parent.jamSelesai||'');
+      if(!jm||!js){
+        // masih kosong → cek parent
+        if(parent.jamMulai||parent.jamSelesai){
+          jm=jm||(parent.jamMulai||'');
+          js=js||(parent.jamSelesai||'');
+          inherited=true;
+        }
+      } else {
+        inherited=true;
+      }
+    }
+    if(!days&&parent){
+      days=Array.isArray(parent.hariAktif)&&parent.hariAktif.length?parent.hariAktif:null;
+      if(days)inherited=true;
+    }
+    const dayNames=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+    const dayStr=(!days||!days.length)?'Setiap hari':days.slice().sort((a,b)=>a-b).map(d=>dayNames[d]||'?').join(', ');
+    const jamStr=(jm||js)?`${jm||'?'} - ${js||'?'}`:'Tidak diatur';
+    const editBtn=editFn?`<button onclick="${editFn}" title="Edit jadwal" style="flex-shrink:0;width:30px;height:30px;border-radius:50%;background:var(--gs);border:1px solid var(--dv);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--a1)">✏️</button>`:'';
+    return `<div style="display:flex;align-items:center;gap:10px;background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r3);padding:9px 12px;margin-bottom:10px;backdrop-filter:blur(20px)">
+      <span style="font-size:16px;flex-shrink:0">⏰</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:700;color:var(--t1)">${jamStr}</div>
+        <div style="font-size:10px;color:var(--t3);margin-top:1px">📅 ${dayStr}${inherited?' · <span style="color:#a87a00;font-weight:600">↩ waris kegiatan</span>':''}</div>
+      </div>
+      ${editBtn}
+    </div>`;
   },
   _ico(el,ic){document.querySelectorAll('.io').forEach(x=>x.classList.remove('sl4'));el.classList.add('sl4');S._icon=ic},
   async _saveKg(kid){
@@ -7084,12 +7305,31 @@ window.open(url,'_blank');
     }
   },
   // Popup: daftar santri yang sedang uzur aktif (urut terlama di atas).
+  // ── v16: Tambahan (1) search box untuk cari nama di list, (2) tombol
+  // simpel "+ Catat Uzur" untuk mulai uzur santri tanpa harus lewat
+  // halaman absensi shalat.
   async _popUzurHariIni(){
     const list=await this._uzurAktifList();
     const today=_todayLocal();
+    S._uzurSearch=S._uzurSearch||'';
+    const q=(S._uzurSearch||'').toLowerCase().trim();
+    const fList=q===''?list:list.filter(u=>{
+      const nm=(u._sn?.nama||'').toLowerCase();
+      const km=(u._sn?.kamar||'').toLowerCase();
+      return nm.includes(q)||km.includes(q);
+    });
     OS(`<div class="sh">🟣 Santri Uzur Aktif (${list.length})</div><div class="sb" style="padding-bottom:30px">
       <div style="font-size:10px;color:var(--t3);margin-bottom:10px">Tanggal: ${today} · Diurutkan dari uzur terlama</div>
-      ${list.length?list.map(u=>{
+      <div style="display:flex;gap:7px;margin-bottom:10px">
+        <div style="flex:1;display:flex;align-items:center;gap:7px;background:var(--inp);border:1.5px solid var(--dv);border-radius:var(--r2);padding:9px 11px">
+          <span style="color:var(--t4);font-size:14px">🔍</span>
+          <input id="uzur-search-inp" class="fi" placeholder="Cari nama / kamar..." value="${esc(S._uzurSearch)}" oninput="App._uzurSearchInput(this.value)" style="border:none;padding:0;background:transparent;flex:1;font-size:13px;outline:none">
+          ${S._uzurSearch?`<button onclick="App._uzurSearchInput('')" style="background:transparent;border:none;font-size:14px;color:var(--t4);cursor:pointer;padding:0 4px">✕</button>`:''}
+        </div>
+        <button onclick="App._addUzurManual()" title="Catat uzur baru" style="padding:9px 14px;border-radius:var(--r2);background:var(--grad);color:#fff;font-size:12px;font-weight:700;border:none;cursor:pointer;white-space:nowrap;box-shadow:0 3px 10px rgba(236,72,153,.25)">+ Catat Uzur</button>
+      </div>
+      <div id="uzur-list-wrap">
+      ${fList.length?fList.map(u=>{
         const sn=u._sn;if(!sn)return'';
         const mn=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
         const d=new Date(u.tglMulai+'T00:00:00');
@@ -7101,9 +7341,105 @@ window.open(url,'_blank');
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:600;font-size:13px;color:var(--t1)">${sn.nama}</span><span class="uzur-badge">${warnHari?'⚠ ':''}Hari ke-${u._hari}</span></div>
             <div style="font-size:10px;color:var(--t3)">Kamar ${sn.kamar||'-'} · Mulai ${tglStr}</div>
           </div>
+          <button onclick="event.stopPropagation();App._endUzurManual('${u.id}','${escJ(sn.nama)}')" title="Akhiri uzur" style="padding:5px 10px;border-radius:100px;background:rgba(13,181,127,.1);border:1px solid rgba(13,181,127,.25);color:var(--a1);font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0">✓ Selesai</button>
         </div>`;
-      }).join(''):'<div class="empty" style="padding:20px 0"><div class="es">Tidak ada santri uzur aktif. 🎉</div></div>'}
+      }).join(''):'<div class="empty" style="padding:20px 0"><div class="es">'+(q?'Tidak ada santri uzur yang cocok dengan pencarian.':'Tidak ada santri uzur aktif. 🎉')+'</div></div>'}
+      </div>
     </div>`);
+  },
+  // ── v16: Search input handler untuk popup uzur (re-render list only, tidak fetch ulang)
+  _uzurSearchDebounce:null,
+  _uzurSearchInput(val){
+    S._uzurSearch=val||'';
+    clearTimeout(this._uzurSearchDebounce);
+    this._uzurSearchDebounce=setTimeout(()=>this._popUzurHariIni(),200);
+  },
+  // ── v16: Catat uzur manual — pop-up simpel: pilih santri → simpan.
+  // Lebih ringan dari flow lewat absensi shalat.
+  // ── v17 FIX: Search selector salah (div:nth-child(2) div:first-child
+  // malah match avatar initial di row ke-2, bukan nama). Sekarang pakai
+  // data-name attribute yang robust. List height juga dinaikkan ke 50vh.
+  async _addUzurManual(){
+    const snt=await DB.ga('santri');
+    const aktif=snt.filter(x=>x.aktif).sort((a,b)=>a.nama.localeCompare(b.nama,'id'));
+    S._uzurSelSnt=null;
+    OS(`<div class="sh">+ Catat Uzur</div><div class="sb" style="padding-bottom:80px">
+      <div style="background:rgba(236,72,153,.06);border:1.5px solid rgba(236,72,153,.2);border-radius:var(--r3);padding:10px 12px;margin-bottom:14px;font-size:11px;color:var(--t2);line-height:1.5">🟣 Uzur (haid) untuk santri putri pada kegiatan shalat. Santri yang dicatat akan otomatis tercatat "Uzur" di semua kegiatan shalat sampai diakhiri.</div>
+      <div class="fg"><label class="fl">Pilih Santri</label>
+      <div style="background:var(--gs);border:1.5px solid var(--dv);border-radius:var(--r3);overflow:hidden">
+        <div style="padding:8px 10px;border-bottom:1px solid var(--dv);display:flex;align-items:center;gap:7px">
+          <span style="color:var(--t4)">🔍</span>
+          <input class="fi" id="uzur-add-search" placeholder="Cari nama santri..." oninput="App._uzurAddSearch()" style="border:none;padding:0;background:transparent;flex:1;font-size:13px">
+        </div>
+        <div id="uzur-add-list" style="max-height:min(50vh,380px);overflow-y:scroll;-webkit-overflow-scrolling:touch">
+        ${App._buildUzurAddList(aktif)}
+        </div>
+      </div></div>
+      <button class="bg2 bw" onclick="App._saveUzurManual()">Simpan Uzur</button>
+    </div>`);
+    // Focus search input supaya user langsung bisa ketik
+    setTimeout(()=>{try{document.getElementById('uzur-add-search')?.focus();}catch(e){}},150);
+  },
+  _buildUzurAddList(arr){
+    if(!arr||!arr.length)return '<div style="padding:12px;text-align:center;font-size:12px;color:var(--t3)">Tidak ada santri</div>';
+    return arr.map(x=>{
+      const av=x.foto?'<img src="'+x.foto+'" style="width:100%;height:100%;object-fit:cover">':'<div style="width:100%;height:100%;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">'+esc(x.nama.charAt(0))+'</div>';
+      const sel=S._uzurSelSnt===x.id;
+      // v17: data-name & data-kamar untuk search yang robust
+      return '<div data-name="'+esc((x.nama||'').toLowerCase())+'" data-kamar="'+esc((x.kamar||'').toLowerCase())+'" style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-bottom:1px solid var(--dv);cursor:pointer;background:'+(sel?'rgba(236,72,153,.08)':'transparent')+'" onclick="App._uzurTogSnt(\''+x.id+'\')" id="uzl-'+x.id+'">'
+        +'<div style="width:32px;height:32px;border-radius:50%;overflow:hidden;flex-shrink:0">'+av+'</div>'
+        +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:var(--t1)">'+esc(x.nama)+'</div><div style="font-size:10px;color:var(--t3)">Kamar '+esc(x.kamar||'-')+'</div></div>'
+        +'<div style="width:18px;height:18px;border-radius:50%;border:2px solid '+(sel?'var(--cu)':'var(--dv)')+';background:'+(sel?'var(--cu)':'transparent')+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px">'+(sel?'✓':'')+'</div>'
+        +'</div>';
+    }).join('');
+  },
+  _uzurAddSearch(){
+    const q=(document.getElementById('uzur-add-search')?.value||'').toLowerCase().trim();
+    document.querySelectorAll('#uzur-add-list > div[data-name]').forEach(row=>{
+      const nm=row.dataset.name||'';
+      const km=row.dataset.kamar||'';
+      row.style.display=(q===''||nm.includes(q)||km.includes(q))?'':'none';
+    });
+  },
+  _uzurTogSnt(id){
+    S._uzurSelSnt=id;
+    // Update visual tanpa re-render seluruh list (performant)
+    document.querySelectorAll('#uzur-add-list > div').forEach(row=>{
+      const isSel=row.id==='uzl-'+id;
+      row.style.background=isSel?'rgba(236,72,153,.08)':'transparent';
+      const dot=row.querySelector('div:last-child');
+      if(dot){
+        dot.style.borderColor=isSel?'var(--cu)':'var(--dv)';
+        dot.style.background=isSel?'var(--cu)':'transparent';
+        dot.innerHTML=isSel?'✓':'';
+      }
+    });
+  },
+  async _saveUzurManual(){
+    if(!S._uzurSelSnt){T('Pilih santri dulu!');return}
+    const rec=await this._startUzur(S._uzurSelSnt,'Manual ('+(S.user?.nama||'-')+')');
+    if(rec){
+      const sn=await DB.g('santri',S._uzurSelSnt);
+      // Kirim notifikasi sistem ke Chat & Notifikasi
+      await _postSystemChatMessage(
+        `Uzur dicatat untuk ${sn?.nama||'Santri'}.`,
+        {label:'Uzur Dicatat', icon:'🟣', sevColor:'var(--cu)', subtype:'uzur_start'}
+      ).catch(()=>{});
+    }
+    S._uzurSelSnt=null;
+    CS();T('✅ Uzur dicatat!');
+    // Buka kembali popup uzur untuk lihat list update
+    await this._popUzurHariIni();
+  },
+  // ── v16: Akhiri uzur langsung dari popup list (simpel, tanpa konfirmasi)
+  async _endUzurManual(uzurId,nama){
+    const all=await DB.ga('uzur');
+    const u=all.find(x=>x.id===uzurId&&x.aktif);
+    if(!u)return;
+    if(!confirm(`Akhiri uzur ${nama}?`))return;
+    await this._endUzur(u.sntId,'manual');
+    T('✅ Uzur diakhiri.');
+    await this._popUzurHariIni();
   },
   // Render tab Uzur di halaman profil santri.
   _renderProfilUzurTab(sntId, uzurList){
@@ -9757,6 +10093,12 @@ async function init(){
 }
 
   // Keyboard avoidance: kecilkan tinggi .sb saat keyboard muncul
+  // ── v17 FIX: Sebelumnya pakai `position:fixed; top:-scrollTop` di #app
+  // saat keyboard muncul. Akibatnya viewport ter-shift ke atas terlalu jauh
+  // — user melihat bagian atas area yang sebelumnya terlihat, BUKAN input
+  // yang baru saja di-tap (yang ada di bagian bawah). Sekarang: cukup
+  // kecilkan height #app ke visualViewport.height lalu scrollIntoView input
+  // aktif. Tidak ada position:fixed, tidak ada shift visual.
   if(window.visualViewport){
     let _kbShown=false;
     const onVP=()=>{
@@ -9783,27 +10125,29 @@ async function init(){
           si.style.height='calc(92vh - '+hdH+'px)';
         }
       }
-      // Handle main page - cegah window scroll naik
-      // AUDIT v3: Karena #app sekarang scroll container utama (height:100vh,
-      // overflow-y:auto), kita lock #app (bukan body) saat keyboard muncul.
-      if(isKbVisible&&!_kbShown){
-        _kbShown=true;
-        const appEl=document.getElementById('app');
-        if(appEl){
-          appEl._savedScrollTop=appEl.scrollTop;
-          appEl.style.position='fixed';
-          appEl.style.width='100%';
-          appEl.style.top='-'+(appEl._savedScrollTop||0)+'px';
-        }
-      } else if(!isKbVisible&&_kbShown){
-        _kbShown=false;
-        const appEl=document.getElementById('app');
-        if(appEl){
-          const scrollY=parseInt(appEl.style.top||'0')*-1;
-          appEl.style.position='';
-          appEl.style.width='';
-          appEl.style.top='';
-          appEl.scrollTop=scrollY;
+      // Handle main page (#app) — v17: kecilkan height, jangan position:fixed
+      const appEl=document.getElementById('app');
+      if(appEl){
+        if(isKbVisible){
+          // Set height ke visualViewport.height supaya scroll area
+          // terbatas ke area yang tidak ketutup keyboard.
+          appEl.style.height=window.visualViewport.height+'px';
+          if(!_kbShown){
+            _kbShown=true;
+            // Scroll input aktif ke tengah area yang terlihat
+            setTimeout(()=>{
+              const el=document.activeElement;
+              if(el&&(el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.tagName==='SELECT')){
+                try{
+                  el.scrollIntoView({behavior:'smooth',block:'center'});
+                }catch(e){}
+              }
+            },100);
+          }
+        } else if(_kbShown){
+          _kbShown=false;
+          // Restore height ke 100vh
+          appEl.style.height='';
         }
       }
     };
@@ -9871,8 +10215,8 @@ async function init(){
     }
   };
   const _origRenderAbsBody = App._renderAbsBody.bind(App);
-  App._renderAbsBody = function(sx, targets, aMap, kms, kamar, catatan) {
-    _origRenderAbsBody(sx, targets, aMap, kms, kamar, catatan);
+  App._renderAbsBody = async function(sx, targets, aMap, kms, kamar, catatan) {
+    await _origRenderAbsBody(sx, targets, aMap, kms, kamar, catatan);
     if (!sx.locked) return;
     // Mode Admin aktif → tetap tampilkan tombol, tapi tambah banner & badge admin
     if (S._adminMode === true) {

@@ -363,3 +363,88 @@ Akses: Pengaturan → Data → "Export ke Excel/CSV/Word/PDF"
 - _doSt guard: locked check ✅
 - Export: 5 data types × 4 formats = 20 kombinasi ✅
 - Virtualisasi: threshold 50 item ✅
+
+## Audit v17 — User Feedback Round 3 (baru diterapkan)
+
+Setelah deploy v3d, user report 7 masalah baru. Semua sudah diperbaiki:
+
+### Fix 24: Auto-lock tidak berjalan — ReferenceError silent failure
+**Lokasi:** `index.html:3013` & `index.html:3133` (`_autoLockExpiredSesi`)
+
+**Akar masalah:** Variabel `isShalat`, `uzurMapAuto`, `sakitMapAuto` dideklarasikan dengan `const` DI DALAM blok `if(!sx){...}else{...}`. Tapi di-loop alpha di bawahnya (line 3080+), variabel ini di-reference dari LUAR blok. Karena `const` block-scoped, ini melempar `ReferenceError: isShalat is not defined`. Error ditangkap oleh `try/catch` luar dan di-log ke console — SILENT FAILURE. Auto-lock tidak pernah selesai, sesi tidak pernah terkunci, alpha tidak otomatis dicatat.
+
+Bug yang sama juga ada di loop kegiatan tanpa sub-kegiatan (line 3119+) dengan variabel `isShalatK`, `uzurMapAutoK`, `sakitMapAutoK`.
+
+**Fix:** Pindahkan deklarasi `const isShalat`, `const uzurMapAuto`, `const sakitMapAuto` KE LUAR blok `if(!sx){...}else{...}` (sebelum blok tersebut). Sekarang variabel terlihat di seluruh badan loop, dan auto-lock berjalan normal.
+
+### Fix 25: Dashboard card sholat jamaah tidak responsif — PATCH 5 tidak await
+**Lokasi:** `index.html:10203` (`App._renderAbsBody` wrapper di PATCH 5)
+
+**Akar masalah:** PATCH 5 (Absensi terkunci) meng-override `App._renderAbsBody` dengan wrapper:
+```js
+App._renderAbsBody = function(sx, ...) {
+  _origRenderAbsBody(sx, ...);  // NOT awaited!
+  if (!sx.locked) return;
+  ...
+};
+```
+`_origRenderAbsBody` adalah fungsi `async`, tapi wrapper TIDAK `await`. Akibatnya `renderAbs()` kembali SEBELUM DOM selesai di-render — user klik card, `nav('abs')` jalan, halaman absensi muncul kosong sebentar, lalu tiba-tiba keisi. Untuk user, terlihat seperti "ui tidak muncul".
+
+**Fix:** Tambah `async` ke wrapper dan `await` ke `_origRenderAbsBody(...)`. Juga tambahkan `try/catch + toast` di `qSubSesiDash` supaya error tidak silent reject.
+
+### Fix 26: Hapus badge "↩ warisan" dari card sub-kegiatan
+**Lokasi:** `index.html:5801` (`_timeBadgeHtml`)
+
+**Akar masalah:** Saat sub-kegiatan tidak punya jam sendiri & waris dari parent, kode menampilkan DUA badge: `⏰ 17:00-17:30` dan `↩ warisan`. User minta hapus badge "warisan" (text & box).
+
+**Fix:** Hapus `<span class="time-badge empty">↩ warisan</span>` dari return value. Sekarang hanya badge jam yang ditampilkan.
+
+### Fix 27: Search di catat uzur tidak berfungsi — selector salah
+**Lokasi:** `index.html:7396` (`_uzurAddSearch`)
+
+**Akar masalah:** Selector CSS `div:nth-child(2) div:first-child` dipakai untuk mengambil nama dari row. Tapi selector ini bermakna: "div:first-child yang merupakan descendant dari div:nth-child(2)". Karena row adalah child dari list container, `div:nth-child(2)` malah match ROW ke-2 di list (bukan body div di dalam row). Hasilnya: selector me-return avatar initial (huruf pertama nama) bukan nama lengkap. Search "ah" tidak match apa pun.
+
+**Fix:** Tambah `data-name` & `data-kamar` attribute ke setiap row, lalu search pakai `row.dataset.name` (jauh lebih robust daripada selector CSS). Tinggi list juga dinaikkan dari 240px ke `min(50vh, 380px)`. Search input sekarang auto-focus saat popup dibuka.
+
+### Fix 28: Keyboard muncul → UI naik terlalu ke atas
+**Lokasi:** `index.html:10088` (visualViewport handler)
+
+**Akar masalah:** Saat keyboard muncul, kode set `#app` jadi `position:fixed; top:-scrollTop`. Ini "membekukan" posisi visual, TAPI area yang terlihat setelah keyboard muncul adalah BAGIAN ATAS area yang sebelumnya terlihat — bukan bagian bawah (tempat input yang baru di-tap berada). User harus scroll manual ke bawah untuk lihat input. Keluhan "ui terlalu naik ke atas".
+
+**Fix:** Hapus `position:fixed; top:-scrollTop`. Ganti dengan: set `#app.style.height = visualViewport.height + 'px'` (supaya scroll container mengecil ke area yang tidak ketutup keyboard), lalu `el.scrollIntoView({block:'center'})` untuk bawa input aktif ke tengah area yang terlihat. Tidak ada visual shift, input selalu terlihat.
+
+### Fix 29: Header jadwal di halaman absensi
+**Lokasi:** `index.html:2549` (`_renderAbsBody`) + `index.html:5829` (`_scheduleHeaderHtml`)
+
+**User request:** "Di halaman absensi tiap sub kegiatan, di bagian atas, perlihatkan jam/waktu kegiatan dari kapan sampai kapan dan harinya serta tombol editnya."
+
+**Implementasi:**
+- Helper baru `_scheduleHeaderHtml(item, parent, editFn)` — render card berisi `⏰ jamMulai - jamSelesai` + `📅 hari1, hari2, ...` + tombol ✏️ edit.
+- Effective jam & hari: sub sendiri, atau waris dari parent (ditandai "↩ waris kegiatan").
+- Jika hari kosong → tampilkan "Setiap hari".
+- Tombol edit memanggil `App.editSub('${skId}')` atau `App.editKg('${kgId}')`.
+- Dipasang di paling atas halaman absensi (sebelum catatan card).
+
+### Fix 30: Tampilkan waktu + hari di card sub-kegiatan (halaman kgd)
+**Lokasi:** `index.html:2467` (`renderKgd`) + `index.html:5812` (`_dayBadgeHtml`)
+
+**User request:** "Di halaman kegiatan yang berisi list sub kegiatan, tiap card sub-kegiatan tambahkan/perlihatkan waktu dan hari-hari sub-kegiatan itu."
+
+**Implementasi:**
+- Helper baru `_dayBadgeHtml(item, parent)` — render chip hari aktif (Min/Sen/Sel/Rab/Kam/Jum/Sab) atau "Setiap hari" jika kosong.
+- Di `renderKgd`, setiap card sub-kegiatan sekarang menampilkan: badge jam (pakai `_timeBadgeHtml` yang sudah ada) + chip hari (pakai `_dayBadgeHtml` baru).
+- Hari efektif: sub sendiri, atau waris dari parent.
+
+### Test Results
+```
+Test 1 (Auto-lock):         5/5 ✅ — Subuh locked, Ahmad=alpha, Budi=sakit, Cici=uzur, 1 pelanggaran
+Test 2 (Dashboard click):   3/3 ✅ — Main card→kgd, Sub-card→abs, abs renders
+Test 3 (kgd badges):        2/2 ✅ — Subuh shows inherited jam+hari, Maghrib shows own
+Test 4 (Absensi header):    2/2 ✅ — Subuh shows "17:00-17:30 · Min,Sen,Sel,Rab,Kam · ↩ waris", Maghrib shows own
+Test 5 (Uzur search):       1/1 ✅ — Search "ah" returns 7 results (was 0 before fix)
+Test 6 (Syntax):            1/1 ✅ — All inline JS parses without error
+TOTAL: 14/14 ✅ ALL PASSED
+```
+
+Test scripts: `scripts/test_combined.js`, `scripts/test_kgd.js`, `scripts/test_uzur.js`, `scripts/test_autolock.js`
+
