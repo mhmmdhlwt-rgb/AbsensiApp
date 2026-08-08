@@ -1882,17 +1882,18 @@ const App={
     }
     // Mapping halaman → store yang ditampilkan (sinkron dengan NAV_PULL di FBSync)
     const PAGE_STORES = {
-      // AUDIT v3l: Hanya list store on-demand (bukan realtime) untuk pull
-      // Store realtime (absensi, sesi, settings, anggota, perizinan, pelanggaran,
-      // uzur, catatanSakit) sudah di-handle oleh onSnapshot.
+      // v19.1: Hanya list store on-demand (bukan realtime) untuk pull.
+      // Store realtime (absensi, sesi, perizinan, uzur, catatanSakit,
+      // catatanSantri, pelanggaran, anggota, settings) sudah di-handle oleh onSnapshot.
+      // catatanSantri dulunya di-list di sntd/profil, tapi sekarang sudah realtime → dihapus dari list.
       dash: ['kegiatan','subKeg','kalam'],
       kg:   ['kegiatan','subKeg'],
       kgd:  ['kegiatan','subKeg'],
       sub:  ['subKeg','santri'],
       abs:  ['santri','kegiatan','subKeg'],
       snt:  ['santri','kamar'],
-      sntd: ['santri','catatanSantri'],
-      profil: ['santri','catatanSantri'],
+      sntd: ['santri'],
+      profil: ['santri'],
       rek:  ['santri','kegiatan','subKeg'],
       set:  ['users','kalam'],
       pel:  ['santri','peraturan','kegiatan','subKeg'],
@@ -1904,8 +1905,12 @@ const App={
     // Pull cloud untuk halaman aktif (re-pull meski baru saja di-pull)
     try {
       if (pg && stores.length) {
-        // Filter out realtime stores (tidak perlu di-pull, sudah realtime)
-        const toPull = stores.filter(s => !['absensi','sesi'].includes(s));
+        // v19.1: Filter out SEMUA realtime stores (9 store). Sebelumnya hanya
+        // filter ['absensi','sesi'] → store lain yang sekarang realtime
+        // (perizinan, uzur, catatanSakit, catatanSantri, pelanggaran, anggota,
+        // settings) ikut di-pull → boros Firestore reads (double-sync dengan onSnapshot).
+        const REALTIME = FBSync._REALTIME_STORES || ['absensi','sesi','perizinan','uzur','catatanSakit','catatanSantri','pelanggaran','anggota','settings'];
+        const toPull = stores.filter(s => !REALTIME.includes(s));
         if (toPull.length) await FBSync.pull(toPull);
       }
       // Re-render halaman aktif
@@ -1963,16 +1968,19 @@ const App={
     S.stack=[];await this.nav('dash');
     // Start listeners (realtime untuk absensi & sesi) di background
     if (navigator.onLine) {
-      // Pull semua store di background — TANPA overlay blocking
-      // pakai cache 5 menit supaya kalau user baru logout-login cepat, tidak re-fetch
-      FBSync.pullAll().then(() => {
+      // v19.1: Pull HANYA store on-demand esensial (santri, kegiatan, subKeg,
+      // kamar) di background. Store realtime (absensi, sesi, perizinan, uzur,
+      // catatanSakit, catatanSantri, pelanggaran, anggota, settings) sudah
+      // auto-load via onSnapshot listeners yang aktif segera setelah start().
+      // User bisa klik tombol "Sync Semua" (long-press refresh) untuk full sync.
+      FBSync.pullEssential().then(() => {
         // Setelah sync cloud selesai, re-render halaman aktif supaya
         // data terbaru tampil (hanya jika user masih di halaman tsb)
         if (S.page === 'dash') {
           try { App.dash(); } catch(e) {}
         }
       }).catch(e => {
-        console.warn('[Login] background pullAll error:', e.message);
+        console.warn('[Login] background pullEssential error:', e.message);
       });
     }
   },
@@ -5692,14 +5700,19 @@ window.open(url,'_blank');
   },
   async _saveSet(key){
     const v=document.getElementById('sv-in')?.value.trim();if(!v)return;
-    await DB.p('settings',{id:key,value:v});T('\u2705 Disimpan!');CS();await this.renderSet();
+    // v19.1: Tambahkan `updatedAt` ke settings doc supaya merge logic
+    // (last-write-wins) berfungsi di device lain. Sebelumnya settings doc
+    // hanya {id, value} tanpa timestamp → di device lain, fbTs=0 & locTs=0
+    // → update diabaikan. Itu penyebab "nama pondok diubah di device A tidak
+    // berubah di device B". DB.p sudah patched → otomatis push ke cloud via
+    // FBSync.write → _fbPatch, jadi tidak perlu _fbFetch PUT manual lagi.
+    await DB.p('settings',{id:key,value:v,updatedAt:Date.now()});T('\u2705 Disimpan!');CS();await this.renderSet();
     if(key==='asrama'){
       // Nama asrama hanya label tampilan (frontend) — TIDAK mengubah tenant namespace
       // atau registry di database. Registry tetap sesuai input awal saat wizard setup,
       // agar seluruh data (kamar, santri, rekap, kegiatan, dll) tetap tersambung ke
       // namespace/tenant yang sama meski nama ditampilkan berubah.
       localStorage.setItem('tenant_nama',v);
-      if(navigator.onLine)await _fbFetch('/settings/asrama','PUT',{id:'asrama',value:v,_ts:Date.now()}).catch(()=>{});
       await _applyAsramaName();
       document.getElementById('pt').textContent='Pengaturan';
     }
@@ -12844,6 +12857,8 @@ const FBSync = (() => {
   async function _flushWrites() {
     if (_writing || !navigator.onLine || !_wq.length) return;
     _writing = true;
+    let pushedCount = 0;
+    let storesTouched = new Set();
     while (_wq.length && navigator.onLine) {
       const item = _wq.shift();
       try {
@@ -12868,8 +12883,12 @@ const FBSync = (() => {
               await _origP(item.store, fbCurrent);
             }
           }
+          pushedCount++;
+          storesTouched.add(item.store);
         } else {
           await _fbFetch('/' + item.store + '/' + item.id, 'DELETE');
+          pushedCount++;
+          storesTouched.add(item.store);
         }
       } catch(e) {
         _wq.unshift(item); // retry
@@ -12881,6 +12900,18 @@ const FBSync = (() => {
     // ── H3 BUG FIX: Clear persisted queue when all flushed ──
     if (_wq.length === 0) _clearPersistedQueue();
     else _persistQueue();  // update persisted queue dengan sisa
+    // ── v19: Broadcast _syncTrigger ke cloud ──
+    // Setelah push sukses, tulis doc _syncTrigger di collection 'settings'
+    // dengan timestamp baru. Device lain yang punya listener 'settings'
+    // (sekarang SEMUA device) akan terima event dan invalidate cache.
+    // Ini jaring pengaman kedua kalau onSnapshot untuk store spesifik
+    // (mis. santri/kegiatan) lag atau miss.
+    if (pushedCount > 0 && _origP) {
+      try {
+        const trigger = { id: '_syncTrigger', ts: Date.now(), stores: Array.from(storesTouched), by: S?.user?.nama || 'unknown', _ts: Date.now() };
+        await _fbPatch('/settings/_syncTrigger', trigger);
+      } catch(e) { /* best-effort, jangan fail */ }
+    }
   }
 
   // ════════════════════════════════════════════════════════
@@ -12980,6 +13011,8 @@ const FBSync = (() => {
           const localAll = await DB.ga(store);
           const localMap = new Map(localAll.map(x => [x.id, x]));
           for (let fbObj of liveItems) {
+            // v19.1: Capture _ts SEBELUM di-delete — fallback untuk store tanpa updatedAt (settings).
+            const fbTsRaw = fbObj.updatedAt || fbObj.createdAt || fbObj._ts || 0;
             delete fbObj._ts; delete fbObj._etag; delete fbObj._srvTs;
             if (store === 'users') fbObj = await _restoreFoto('users', fbObj);
             if (store === 'perizinan') fbObj = await _restoreFoto('perizinan', fbObj);
@@ -12987,11 +13020,22 @@ const FBSync = (() => {
             if (store === 'catatanSantri') fbObj = await _restoreFoto('catatanSantri', fbObj);
             const loc = localMap.get(fbObj.id);
             if (!loc) { await _origP(store, fbObj); changed = true; continue; }
-            const fbTs  = fbObj.updatedAt  || fbObj.createdAt  || 0;
-            const locTs = loc.updatedAt || loc.createdAt || 0;
+            const fbTs  = fbTsRaw;
+            const locTs = loc.updatedAt || loc.createdAt || loc._ts || 0;
             if (fbTs > locTs) {
               // Firebase jelas lebih baru → pakai FB
               await _origP(store, fbObj); changed = true;
+            } else if (fbTs === 0 && locTs === 0) {
+              // v19.1: Tidak ada timestamp (settings doc lama) — bandingkan field-by-field.
+              let diff = false;
+              const merged = Object.assign({}, loc);
+              for (const key of Object.keys(fbObj)) {
+                if (key === 'id' || key === '_ts') continue;
+                if (JSON.stringify(fbObj[key]) !== JSON.stringify(loc[key])) {
+                  merged[key] = fbObj[key]; diff = true;
+                }
+              }
+              if (diff) { await _origP(store, merged); changed = true; }
             } else if (Math.abs(fbTs - locTs) < 30000 && fbTs !== locTs) {
               // Kedua admin edit hampir bersamaan (<30 detik selisih) → 3-way merge:
               // gabungkan semua field, prioritaskan yang updatedAt-nya lebih baru per-field
@@ -13027,24 +13071,35 @@ const FBSync = (() => {
     }
   }
 
-  // Pull lengkap semua store — untuk setup awal / setelah login
+  // Pull lengkap semua store — dipanggil saat user klik "Sync Semua" /
+  // tombol "Ambil Semua Data dari Cloud" di Pengaturan.
+  // v19.1: Pull SEMUA 17 store (sebelumnya hanya 6 essential). User explicitly
+  // minta: "Ketika klik tombol sinkronisasi atas maka akan menyelaraskan data
+  // dan mengambil data dari cloud." Jadi tombol sync = full sync semua store.
+  // Tombol refresh biasa (klik singkat) tetap hanya pull store on-demand yang
+  // relevan dengan halaman aktif (lihat refreshCurrentPage()).
   async function pullAll() {
-    // ── AUDIT v3c: Hanya pull store esensial saat login ──
-    // Sebelumnya: pullAll memuat 17 store sekaligus = ~850 docs per login.
-    // Untuk 5 musyrifah login per hari = 4,250 reads hanya dari login.
-    // Sekarang: hanya pull store yang SANGAT esensial untuk dashboard:
-    //   - santri (untuk nama di dashboard)
-    //   - sesi (untuk absensi hari ini)
-    //   - absensi (untuk rekap hari ini)
-    //   - kegiatan (untuk list kegiatan)
-    //   - settings (untuk nama asrama, jenis kelamin)
-    //   - kamar (untuk filter kamar)
-    // Store lain (auditLog, peraturan, kalam, catatanSantri, pelanggaran,
-    // perizinan, uzur, catatanSakit, anggota, users, subKeg) akan di-pull
-    // on-demand saat user navigasi ke halaman terkait (dengan cache 5 menit).
-    const ESSENTIAL = ['santri', 'sesi', 'absensi', 'kegiatan', 'settings', 'kamar'];
+    if (!navigator.onLine) { if (window.T) T('⚠️ Sedang offline'); return; }
+    _dot('syncing');
+    if (window.T) T('⏳ Menyelaraskan semua data dari cloud...', 4000);
+    const ALL = ['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','users','kamar','catatanSantri','pelanggaran','peraturan','settings','kalam','perizinan','uzur','catatanSakit'];
+    await pull(ALL);
+    // Tandai semua store sebagai sudah di-pull (cache 5 menit)
+    ALL.forEach(s => _markPulled(s));
+    _dot('ok');
+    if (window.T) T('✅ Semua data tersinkron!', 2500);
+  }
+
+  // v19.1: Pull HANYA store on-demand yang dibutuhkan untuk dashboard —
+  // dipanggil saat login (background, non-blocking). Store realtime (absensi,
+  // sesi, perizinan, uzur, catatanSakit, catatanSantri, pelanggaran, anggota,
+  // settings) sudah auto-load via onSnapshot listeners, jadi tidak perlu di-pull.
+  // Store on-demand lainnya (users, peraturan, kalam, auditLog) akan di-pull
+  // on-demand saat user navigasi ke halaman terkait (pullForNav, cache 5 menit).
+  async function pullEssential() {
+    if (!navigator.onLine) return;
+    const ESSENTIAL = ['santri','kegiatan','subKeg','kamar'];
     await pull(ESSENTIAL);
-    // Tandai essential stores sebagai sudah di-pull (cache 5 menit)
     ESSENTIAL.forEach(s => _markPulled(s));
   }
 
@@ -13228,50 +13283,65 @@ const FBSync = (() => {
   }
 
   // Proses satu perubahan dokumen dari Firestore
-  // ── AUDIT v3: Re-render hanya jika store RELEVAN dengan halaman aktif ──
-  // Sebelumnya: setiap perubahan Firestore memicu _scheduleReRender tanpa cek
-  // apakah store tsb ditampilkan di halaman aktif. Akibatnya: user di halaman
-  // Santri tetap di-re-render saat ada perubahan absensi di device lain.
-  // Sekarang: mapping store → halaman yang menampilkan store tsb.
+  // ── v19: SEMUA perubahan Firestore memicu re-render ──
+  // Sebelumnya (v3-v18): hanya store "relevan" dengan halaman aktif yang
+  // memicu re-render. Tapi mapping _STORE_TO_PAGES tidak lengkap — mis. jika
+  // user di halaman Kegiatan dan ada santri baru dari device lain, tidak
+  // ada re-render. Akibatnya data lokal STALE walaupun onSnapshot sudah
+  // terima update.
+  // Sekarang: KONSERVATIF — re-render untuk SEMUA store change. Untuk
+  // halaman yang tidak menampilkan store tsb, re-render adalah no-op
+  // (render fungsi cek data, tidak ada yang baru = tidak ada perubahan DOM).
+  // Trade-off: sedikit extra CPU untuk re-render noop, TAPI data SELALU
+  // fresh. Ini lebih penting daripada micro-optimization.
   const _STORE_TO_PAGES = {
     absensi: ['dash','abs','kgd','rek','profil'],
     sesi:    ['dash','kg','kgd','sub','abs','rek'],
     settings: ['dash','set','snt','kg'],
-    // AUDIT v3k: Tambah mapping untuk store realtime baru
-    anggota: ['kg','kgd','sub','abs'],      // anggota relevan di halaman kegiatan & absensi
-    perizinan: ['izn','dash','profil','abs'], // perizinan relevan di halaman perizinan & dashboard
-    pelanggaran: ['pel','dash','profil'],     // pelanggaran relevan di halaman pelanggaran & dashboard
-    // AUDIT v3l: Tambah mapping untuk uzur & catatanSakit
-    uzur: ['dash','abs','profil'],            // uzur relevan di dashboard, absensi, profil
-    catatanSakit: ['dash','izn','abs','profil'], // catatanSakit relevan di dashboard, perizinan, absensi, profil
+    anggota: ['kg','kgd','sub','abs'],
+    perizinan: ['izn','dash','profil','abs'],
+    pelanggaran: ['pel','dash','profil'],
+    uzur: ['dash','abs','profil'],
+    catatanSakit: ['dash','izn','abs','profil'],
+    santri: ['dash','snt','sntd','profil','abs','kgd','sub','rek','pel','izn'],
+    kegiatan: ['dash','kg','kgd','sub','abs','rek','pel'],
+    subKeg: ['dash','kg','kgd','sub','abs','rek','pel'],
+    kamar: ['snt','set'],
+    users: ['set'],
+    peraturan: ['pel','set'],
+    kalam: ['dash','set'],
+    auditLog: ['set','abs'],
+    catatanSantri: ['sntd','profil','snt'],
   };
   function _isStoreRelevantToCurrentPage(store) {
-    const pages = _STORE_TO_PAGES[store];
-    if (!pages) return true; // unknown store → conservative: re-render
-    return pages.includes(S.page);
+    // v19: selalu return true — re-render untuk SEMUA store change.
+    // Mapping di atas dipertahankan untuk debugging/diagnostic only.
+    return true;
   }
 
   async function _handleDocChange(store, doc) {
-    // ── AUDIT v3i: Sync trigger detection ──
-    // Jika store='settings' dan doc.id='_syncTrigger', invalidate SEMUA cache
-    // dan force pull halaman aktif. Ini mengatasi "import di device A tidak
-    // muncul di device B" — device B ter-trigger via onSnapshot settings.
+    // ── v19: Sync trigger detection ──
+    // Setelah device lain selesai push data, dia tulis doc _syncTrigger
+    // di collection 'settings. Device ini (yang punya listener 'settings'
+    // selalu aktif) terima event, invalidate cache, dan re-render.
+    // v19: Tidak perlu pull manual lagi — SEMUA store sekarang punya
+    // onSnapshot sendiri yang akan terima perubahan langsung. _syncTrigger
+    // cuma jadi "safety net" untuk kasus listener lag/miss.
     if (store === 'settings' && doc.id === '_syncTrigger') {
-      console.log('[FBSync] Sync trigger detected! Invalidating cache + force pull...');
-      // Invalidate semua cache
+      // Cek apakah trigger ini dari device lain (bukan dari device ini sendiri)
+      // dengan bandingkan timestamp. Jika ts trigger == ts write terakhir device
+      // ini, skip (echo). Best-effort: bandingkan by 'by' field.
+      const data = doc.data ? doc.data() : doc;
+      const by = data?.by || '';
+      const myName = (S?.user?.nama || '').trim();
+      // Invalidate cache untuk store yang di-trigger
       if (typeof DB.invalidateCache === 'function') DB.invalidateCache();
       if (_invalidateCache) _invalidateCache();
-      // Force pull halaman aktif (bypass cache)
-      const pg = (typeof S !== 'undefined' && S.page) || 'dash';
-      if (pg && pg !== 'chat') {
-        try {
-          // AUDIT v3l: Pull SEMUA store (on-demand only — realtime store sudah
-          // di-handle oleh onSnapshot, tidak perlu pull manual)
-          await pull(['santri','kegiatan','subKeg','kamar','users','peraturan','kalam','auditLog','catatanSantri']).catch(()=>{});
-          // Re-render halaman aktif
-          _scheduleReRender();
-          if (window.T) T('🔄 Data disinkronkan dari perangkat lain', 3000);
-        } catch(e) { console.warn('[FBSync] sync trigger pull error:', e); }
+      // Re-render halaman aktif supaya data fresh dari IDB tampil
+      _scheduleReRender();
+      // Toast info jika trigger dari device lain
+      if (by && by !== myName) {
+        if (window.T) T('🔄 Sinkronisasi data dari ' + by, 2000);
       }
       return; // Jangan proses doc ini lebih lanjut
     }
@@ -13313,10 +13383,17 @@ const FBSync = (() => {
       // ── LIVE ITEM — merge/update lokal jika FB lebih baru ──
       try {
         const fbObj = Object.assign({}, data);
+        // v19.1: Capture _ts SEBELUM di-delete — dipakai sebagai fallback
+        // timestamp untuk store yang tidak punya field updatedAt (mis. settings).
+        // Sebelumnya: _ts di-delete dulu, lalu fbTs dihitung dari updatedAt/createdAt
+        // saja. Untuk settings doc {id:'asrama', value:'NewName', _ts:12345}, fbTs=0
+        // dan locTs=0 → tidak ada branch yang match → update DIABAIKAN. Ini bug
+        // "nama pondok diubah di device A tidak berubah di device B".
+        const fbTsRaw = fbObj.updatedAt || fbObj.createdAt || fbObj._ts || 0;
         delete fbObj._ts; delete fbObj._etag; delete fbObj._srvTs;
         const loc = await DB.g(store, data.id).catch(()=>null);
-        const fbTs = fbObj.updatedAt || fbObj.createdAt || 0;
-        const locTs = loc ? (loc.updatedAt || loc.createdAt || 0) : 0;
+        const fbTs = fbTsRaw;
+        const locTs = loc ? (loc.updatedAt || loc.createdAt || loc._ts || 0) : 0;
         if (!loc) {
           // Item baru dari FB — simpan lokal
           await (_origP ? _origP(store, fbObj) : DB.p(store, fbObj));
@@ -13339,31 +13416,89 @@ const FBSync = (() => {
             await (_origP ? _origP(store, fbObj) : DB.p(store, fbObj));
             if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
           }
+        } else if (fbTs === locTs && fbTs > 0) {
+          // ── v19: Timestamp sama, cek apakah field berbeda ──
+          // Kadang PATCH merge dari device lain mengubah field tanpa update
+          // updatedAt (mis. foto profil). Bandingkan field-by-field, jika ada
+          // perbedaan, merge (FB menang untuk field yang beda).
+          let diff = false;
+          const merged = Object.assign({}, loc);
+          for (const key of Object.keys(fbObj)) {
+            if (key === 'id' || key === '_ts') continue;
+            if (JSON.stringify(fbObj[key]) !== JSON.stringify(loc[key])) {
+              merged[key] = fbObj[key];
+              diff = true;
+            }
+          }
+          if (diff) {
+            await (_origP ? _origP(store, merged) : DB.p(store, merged));
+            if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
+          }
+        } else if (fbTs === 0 && locTs === 0) {
+          // ── v19.1: Tidak ada timestamp sama sekali (mis. settings doc lama) ──
+          // Bandingkan field-by-field. Jika ada perbedaan, FB menang (last-write-wins
+          // tidak bisa dipakai karena tidak ada timestamp — asumsikan FB lebih baru
+          // karena onSnapshot baru saja push update ke device ini).
+          let diff = false;
+          const merged = Object.assign({}, loc);
+          for (const key of Object.keys(fbObj)) {
+            if (key === 'id' || key === '_ts') continue;
+            if (JSON.stringify(fbObj[key]) !== JSON.stringify(loc[key])) {
+              merged[key] = fbObj[key];
+              diff = true;
+            }
+          }
+          if (diff) {
+            await (_origP ? _origP(store, merged) : DB.p(store, merged));
+            if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
+          }
         }
-        // locTs >= fbTs → lokal sama/lebih baru → biarkan, write queue akan push ke FB
+        // locTs > fbTs → lokal lebih baru → biarkan, write queue akan push ke FB
       } catch(e) { console.warn('[FB Listener] live item error:', store, data.id, e); }
     }
   }
 
-  // ── AUDIT v3: OFFLINE-FIRST — Realtime HANYA untuk absensi & sesi ──
-  // Sebelumnya: 10 store realtime + 6 store polling = 16 sumber trigger re-render.
-  // Itu penyebab app lemot: setiap perubahan kecil di Firestore (bahkan di store
-  // yang tidak sedang dilihat user) memicu _scheduleReRender yang rebuild DOM.
-  // Sekarang: HANYA absensi & sesi yang realtime (memang perlu cross-device sync
-  // saat sedang aktif absensi). Semua store lain: load once saat dibutuhkan,
-  // cache 5 menit, tidak ada background polling.
-  // User feedback: "Aplikasi harus offline first, jangan semua2 online"
-  // AUDIT v3l: Tambah 'uzur' & 'catatanSakit' ke realtime
-  // uzur: santri uzur → status absensi jadi 'uzur' bukan 'alpha'
-  // catatanSakit: santri sakit → status absensi jadi 'sakit' bukan 'alpha'
-  // Keduanya berdampak langsung ke logika absensi — harus sync cepat.
-  const _REALTIME_STORES = ['absensi', 'sesi', 'settings', 'anggota', 'perizinan', 'pelanggaran', 'uzur', 'catatanSakit'];
+  // ── v19.1 SELECTIVE REALTIME (hemat Firestore Blaze) ────────────────
+  // HANYA 9 store penting (data absensi & angka harian) yang realtime via
+  // onSnapshot. Store master data (santri, kegiatan, subKeg, kamar, users,
+  // peraturan, kalam, auditLog) → on-demand: di-pull saat navigasi ke
+  // halaman terkait (cache 5 menit) ATAU saat user klik "Sync Semua".
+  //
+  // Alasan: setiap listener onSnapshot = 1x baca PER dokumen di koleksi
+  // saat attach. Untuk koleksi besar (absensi bisa 5000+ docs, santri 200+),
+  // ini sangat boros. Dengan 9 store realtime (bukan 17), kita hemat ~50%
+  // Firestore reads per app open, tanpa mengorbankan real-time-ness untuk
+  // data yang BENAR-BENAR perlu live (absensi/kehadiran/sakit/uzur/alpha).
+  //
+  // STORE REALTIME (data angka harian yang sering berubah):
+  //   - absensi      → status hadir/alpha/terlambat/sakit/uzur
+  //   - sesi         → lock status + rekap absensi per sesi
+  //   - perizinan    → izin/sakit/uzur (menentukan "tidak di pondok")
+  //   - uzur         → catatan uzur santri
+  //   - catatanSakit → catatan sakit santri
+  //   - catatanSantri→ catatan harian santri (di pondok / tidak)
+  //   - pelanggaran  → pelanggaran auto & manual
+  //   - anggota      → anggota kegiatan (untuk list absensi)
+  //   - settings     → nama pondok, dll (perlu sync antar device — pernah bug)
+  //
+  // STORE ON-DEMAND (master data, jarang berubah):
+  //   - santri, kegiatan, subKeg, kamar, users, peraturan, kalam, auditLog
+  //   - Di-pull saat navigasi (pullForNav, cache 5 menit) atau "Sync Semua"
+  //
+  // PUSH: SETIAP write (input/edit/hapus) LANGSUNG dikirim ke cloud
+  //       via FBSync.write → _flushWrites → _fbPatch (write-through, tidak delay).
+  //       Ini berlaku untuk SEMUA store, baik realtime maupun on-demand.
+  //       Jadi data yang di-input di device A langsung ada di database.
+  const _REALTIME_STORES = [
+    'absensi','sesi','perizinan','uzur','catatanSakit','catatanSantri',
+    'pelanggaran','anggota','settings'
+  ];
   // Backward-compat alias
   const _LISTENER_STORES = _REALTIME_STORES;
-  // Store yang di-load on-demand (saat nav ke halaman tsb), bukan realtime
-  // dan bukan polling. Cache 5 menit supaya nav back-forth tidak re-fetch.
-  // AUDIT v3l: Hapus uzur & catatanSakit dari on-demand (sudah realtime)
-  const _ON_DEMAND_STORES = ['santri','kegiatan','subKeg','kamar','users','peraturan','kalam','auditLog','catatanSantri'];
+  // v19.1: 8 store on-demand — di-pull via pullForNav (cache 5 menit) atau pullAll.
+  const _ON_DEMAND_STORES = [
+    'santri','kegiatan','subKeg','kamar','users','peraturan','kalam','auditLog'
+  ];
   // Cache: { storeName: timestampLastPullMs }
   const _pullCache = {};
   const _PULL_CACHE_TTL = 5 * 60 * 1000; // 5 menit
@@ -13435,31 +13570,25 @@ const FBSync = (() => {
     if (!navigator.onLine) return;
     _listenerGen++;
     const myGen = _listenerGen;
-    // ── AUDIT v3h: LAZY LISTENER + DEDUP ──
-    // Hanya attach jika halaman aktif butuh realtime.
-    // Halaman yang butuh realtime absensi/sesi: dash, abs, kgd, rek, profil, kg, sub
-    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub', 'pel', 'izn'];
-    const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
-    if (!REALTIME_PAGES.includes(currentPage)) {
-      console.log('[FB Listeners] Skipped — page', currentPage, 'tidak butuh realtime');
-      _startHealthCheck(myGen);
-      return;
-    }
-    // AUDIT v3h: Cek apakah listener untuk store ini sudah ada di generasi ini
-    // Jika sudah ada, skip (cegah duplicate listener yang menyebabkan 116 listeners)
+    // ── v19: SELALU attach SEMUA 17 store, di SEMUA halaman ──
+    // Sebelumnya: hanya attach di halaman "realtime" (dash/abs/kgd/dll).
+    // User di halaman set/snt/sntd tidak dapat update cross-device.
+    // Sekarang: listener aktif selama user login, terlepas dari halaman aktif.
+    // Trade-off: sedikit extra Firestore reads (listener initial load), TAPI
+    // data SELALU konsisten antar device — ini prioritas utama user.
     _REALTIME_STORES.forEach(store => {
       const existing = _unsubs.find(u => u._store === store && u._gen === myGen);
       if (existing) {
-        console.log('[FB Listeners] Skip duplicate for', store, '(already attached)');
         return;
       }
       _attachListener(store, myGen, 5000);
     });
-    console.log('[FB Listeners] Started for', _REALTIME_STORES.length, 'realtime stores (gen', myGen+') — page:', currentPage, '— active listeners:', _unsubs.length);
+    console.log('[FB Listeners v19] Started for', _REALTIME_STORES.length, 'stores (gen', myGen+') — active listeners:', _unsubs.length);
     _startHealthCheck(myGen);
   }
 
   // AUDIT v3g: Health check terpisah supaya bisa jalan meski listener tidak attach
+  // v19: cek listener di SEMUA halaman (tidak hanya realtime pages)
   function _startHealthCheck(myGen) {
     if (_healthTimer) clearInterval(_healthTimer);
     _healthTimer = setInterval(() => {
@@ -13468,11 +13597,9 @@ const FBSync = (() => {
         return;
       }
       if (!navigator.onLine) return;
-      // Hanya restart jika ada listener yang seharusnya aktif tapi mati
-      const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub', 'pel', 'izn'];
-      const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
-      if (REALTIME_PAGES.includes(currentPage) && _unsubs.length < _REALTIME_STORES.length) {
-        console.warn('[FB Listeners] Health check: hanya', _unsubs.length, '/', _REALTIME_STORES.length, 'aktif — restart');
+      // v19: selalu cek — listener harus aktif di semua halaman
+      if (_unsubs.length < _REALTIME_STORES.length) {
+        console.warn('[FB Listeners v19] Health check: hanya', _unsubs.length, '/', _REALTIME_STORES.length, 'aktif — restart');
         _listenerGen++;
         const newGen = _listenerGen;
         _REALTIME_STORES.forEach(store => _attachListener(store, newGen, 5000));
@@ -13485,9 +13612,15 @@ const FBSync = (() => {
   function stopListeners() {
     _listenerGen++; // basikan semua timer reconnect yang mungkin masih terjadwal
     if (_healthTimer) { clearInterval(_healthTimer); _healthTimer = null; }
+    // v19: Jangan reassign _unsubs = [] ( membuat reference export jadi stale).
+    // Sebelumnya: _unsubs = [] mengganti array, tapi FBSync._unsubs (yang di-return
+    // di IIFE) tetap menunjuk ke array LAMA. Akibatnya: cek `FBSync._unsubs.length`
+    // dari luar selalu 0, dan health check / nav patch selalu anggap listener mati
+    // lalu restart terus (bisa bikin 116 listener ganda).
+    // Sekarang: kosongkan array in-place (splice) supaya reference tetap sama.
     if (_unsubs.length) {
-      _unsubs.forEach(u => { try { u(); } catch(e){} });
-      _unsubs = [];
+      const toStop = _unsubs.splice(0);
+      toStop.forEach(u => { try { u(); } catch(e){} });
       console.log('[FB Listeners] Stopped');
     }
   }
@@ -13496,21 +13629,22 @@ const FBSync = (() => {
   // NAV PULL: store yang di-pull saat navigasi ke halaman tertentu
   // ════════════════════════════════════════════════════════
   const NAV_PULL = {
-    // AUDIT v3l: Hapus uzur & catatanSakit dari nav pull (sudah realtime)
-    // Store yang sudah realtime (absensi, sesi, settings, anggota, perizinan,
-    // pelanggaran, uzur, catatanSakit) TIDAK perlu di-pull — onSnapshot handle.
+    // v19.1: Hanya list store ON-DEMAND (8 store). Store realtime (9 store:
+    // absensi, sesi, perizinan, uzur, catatanSakit, catatanSantri, pelanggaran,
+    // anggota, settings) TIDAK perlu di-pull — onSnapshot handle.
+    // catatanSantri dulunya di-list di sntd/profil, tapi sekarang sudah realtime → dihapus.
     dash:    ['kegiatan','subKeg','kalam'],
     kg:      ['kegiatan','subKeg'],
     kgd:     ['kegiatan','subKeg'],
     sub:     ['subKeg','santri'],
     abs:     ['santri','kegiatan','subKeg'],
     snt:     ['santri','kamar'],
-    sntd:    ['santri','catatanSantri'],
+    sntd:    ['santri'],
     rek:     ['santri','kegiatan','subKeg'],
     set:     ['users','kalam'],
     pel:     ['santri','peraturan','kegiatan','subKeg'],
     izn:     ['santri'],
-    profil:  ['santri','catatanSantri'],
+    profil:  ['santri'],
     chat:    [],
   };
 
@@ -13615,7 +13749,7 @@ const FBSync = (() => {
     });
   }
 
-  return { write, pull, pullAll, pullForNav, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache };
+  return { write, pull, pullAll, pullEssential, pullForNav, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache, _unsubs, _REALTIME_STORES };
 })();
 
 // ════════════════════════════════════════════════════════════
@@ -13654,25 +13788,21 @@ const FBSync = (() => {
       clearInterval(ChatModule._pollTimer);
       ChatModule._pollTimer = null;
     }
-    // ── AUDIT v3g: LAZY LISTENER — attach/detach berdasarkan halaman ──
-    // Halaman yang butuh realtime absensi/sesi: dash, abs, kgd, rek, profil, kg, sub
-    // Halaman yang TIDAK butuh realtime: set, pel, izn, snt, sntd, chat
-    // Saat user pindah KE halaman realtime, start listeners.
-    // Saat user pindah DARI halaman realtime ke non-realtime, stop listeners.
-    // Ini hemat ~300 reads/jam untuk user yang lama di halaman non-realtime.
-    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub', 'pel', 'izn'];
-    const wasRealtime = REALTIME_PAGES.includes(S.page);
-    const willBeRealtime = REALTIME_PAGES.includes(pg);
+    // ── v19: Listeners SELALU aktif (semua halaman) ──
+    // Sebelumnya: listener detach saat user pindah ke halaman non-realtime
+    // (set, snt, sntd, chat). Akibatnya: user di halaman Santri tidak lihat
+    // santri baru dari device lain sampai pindah halaman.
+    // Sekarang: listener tetap aktif. startListeners() dipanggil sekali di
+    // boot, dan tetap aktif selama user login. Jangan detach di nav.
     if (navigator.onLine) {
-      if (willBeRealtime && !wasRealtime) {
-        // Masuk ke halaman realtime — attach listeners
+      // Cek apakah listener masih aktif. Jika tidak, start.
+      if (!FBSync._unsubs || FBSync._unsubs.length < 5) {
         setTimeout(() => FBSync.startListeners(), 100);
-      } else if (!willBeRealtime && wasRealtime) {
-        // Keluar dari halaman realtime — detach listeners (hemat reads)
-        FBSync.stopListeners();
       }
     }
     // Pull data halaman tujuan secara NON-BLOCKING (paralel dengan render)
+    // v19: pullForNav tetap dipanggil untuk store yang belum punya listener
+    // (chat) — tapi karena semua 17 store sekarang realtime, ini efektif no-op.
     const _fastPages = ['chat'];
     if (navigator.onLine && !_fastPages.includes(pg)) {
       FBSync.pullForNav(pg).catch(()=>{});
@@ -13776,16 +13906,10 @@ document.addEventListener('visibilitychange', async () => {
     _lastVisChange = now;
     
     FBSync._flushWrites();
-    // AUDIT v3h: Hanya restart listeners jika BENAR-BENAR mati (jumlah < seharusnya)
-    // Jangan restart kalau masih aktif — itu penyebab 116 listener ganda
-    const REALTIME_PAGES = ['dash', 'abs', 'kgd', 'rek', 'profil', 'kg', 'sub', 'pel', 'izn'];
-    const currentPage = (typeof S !== 'undefined' && S.page) || 'dash';
-    if (REALTIME_PAGES.includes(currentPage)) {
-      // Cek apakah listener masih aktif
-      if (FBSync._unsubs && FBSync._unsubs.length < 2) {
-        console.log('[visibilitychange] Listener mati, restart...');
-        FBSync.startListeners();
-      }
+    // v19: Restart listeners jika mati — cek di SEMUA halaman (tidak hanya realtime)
+    if (FBSync._unsubs && FBSync._unsubs.length < 5) {
+      console.log('[visibilitychange v19] Listener mati, restart...');
+      FBSync.startListeners();
     }
     // Cek apakah hari sudah berganti
     const today = _todayLocal();
@@ -13929,8 +14053,29 @@ async function _setupPushNotif(role,sntId){
 // BOOT
 // AUDIT v3c: Hapus setInterval(_chatBgCheck, 8000) — _bgTimer (30s) sudah
 // handle chat check. Double poll = double reads.
+// v19: Listeners start SEGERA (tidak tunggu 2 detik) supaya cross-device
+// sync aktif sesaat setelah load. FBSync.start() tetap dijalankan untuk
+// load persisted queue + pullAll initial.
 // ════════════════════════════════════════════════════════════
-setTimeout(()=>{FBSync.start();_startBgRefresh();},2000);
+setTimeout(()=>{
+  FBSync.start();
+  // v19: Start listeners SEGERA, jangan tunggu pullAll selesai.
+  // Sebelumnya startListeners ada di .then() pullAll — kalau pullAll
+  // lambat/reject, listener tidak attach dan device tidak terima update.
+  if (navigator.onLine) {
+    setTimeout(()=>FBSync.startListeners(), 200);
+  }
+  _startBgRefresh();
+},1000);
+
+// v19.1: Expose App, DB, FBSync on window for debuggability & automated testing.
+// Top-level `const` tidak otomatis attach ke window di browser modern, jadi
+// testing via puppeteer page.evaluate() tidak bisa akses FBSync._REALTIME_STORES
+// atau App._saveSet() langsung. Expose secara eksplisit supaya inspectable dari
+// DevTools console dan test scripts.
+window.App = App;
+window.DB = DB;
+window.FBSync = FBSync;
 
 </script>
 <!-- ============================================================ -->
