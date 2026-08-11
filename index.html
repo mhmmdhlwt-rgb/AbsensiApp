@@ -13106,6 +13106,18 @@ const FBSync = (() => {
     if (window.T) T('✅ Semua data tersinkron!', 2500);
   }
 
+  // ── PERFORMANCE: pull HANYA 8 store on-demand (tanpa toast) ──
+  // Dipakai saat boot. Store realtime tidak di-pull karena onSnapshot
+  // sudah mengirim seluruh isi koleksi saat listener attach — mem-pull-nya
+  // lagi berarti membayar reads dua kali untuk data yang sama.
+  async function pullOnDemand() {
+    if (!navigator.onLine) return;
+    _dot('syncing');
+    await pull(_ON_DEMAND_STORES);
+    _ON_DEMAND_STORES.forEach(s => _markPulled(s));
+    _dot('ok');
+  }
+
   // v19.1: Pull HANYA store on-demand yang dibutuhkan untuk dashboard —
   // dipanggil saat login (background, non-blocking). Store realtime (absensi,
   // sesi, perizinan, uzur, catatanSakit, catatanSantri, pelanggaran, anggota,
@@ -13782,7 +13794,16 @@ const FBSync = (() => {
       // terdeteksi. Sekarang start listeners paralel dengan pullAll
       // supaya real-time updates langsung aktif.
       startListeners();
-      pullAll().then(() => {
+      // ── PERFORMANCE FIX: jangan pull store yang sudah punya listener ──
+      // startListeners() di atas sudah melakukan initial load untuk 9 store
+      // realtime (onSnapshot mengirim seluruh isi koleksi sebagai event
+      // 'added' saat attach). pullAll() lalu MEMBACA ULANG ke-17 store,
+      // termasuk 9 yang barusan dibaca listener — jadi absensi (koleksi
+      // terbesar, bisa ribuan dokumen) dibaca DUA KALI setiap app open.
+      // Itu ~2x biaya reads dan bikin startup terasa lambat.
+      // Sekarang: saat boot cukup pull 8 store on-demand saja; store
+      // realtime sudah ditangani listener.
+      pullOnDemand().then(() => {
         // Setelah sync cloud selesai, cek duplikat lagi
         setTimeout(() => _deduplicateAll().catch(()=>{}), 1000);
         // ── IMPROVED: Tombstone sweep setelah pull pertama ──
@@ -13791,12 +13812,12 @@ const FBSync = (() => {
         // defensive untuk kasus edge).
         setTimeout(() => _sweepTombstones().catch(()=>{}), 2000);
       }).catch(e => {
-        console.warn('[FBSync] pullAll error, listeners already running:', e.message);
+        console.warn('[FBSync] initial pull error, listeners already running:', e.message);
       });
     });
   }
 
-  return { write, pull, pullAll, pullEssential, pullForNav, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache, _unsubs, _REALTIME_STORES };
+  return { write, pull, pullAll, pullOnDemand, pullEssential, pullForNav, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache, _unsubs, _REALTIME_STORES };
 })();
 
 // ════════════════════════════════════════════════════════════
