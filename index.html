@@ -241,6 +241,11 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .cm{font-family:var(--fd);font-size:14px;font-weight:800;color:var(--t1)}
 /* KG CARD */
 .kg{background:var(--su);border:1px solid var(--sub);border-radius:var(--r4);overflow:hidden;backdrop-filter:blur(22px);box-shadow:var(--shadow-sm);transition:box-shadow .2s}
+.kg.off,.sic.off,.kg-detail-row.off{opacity:.68;filter:grayscale(.35);background:rgba(239,68,68,.045)!important;border-color:rgba(239,68,68,.22)!important}
+.kg-toggle{padding:5px 9px;border-radius:100px;border:1px solid rgba(13,181,127,.25);background:var(--gs);color:var(--a1);font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap}
+.kg-toggle.off{border-color:rgba(239,68,68,.25);background:rgba(239,68,68,.08);color:#ef4444}
+.kg-status-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:100px;background:rgba(13,181,127,.12);color:var(--a1);font-size:9px;font-weight:800}
+.kg-status-pill.off{background:rgba(239,68,68,.1);color:#ef4444}
 .kg.dn{border-color:rgba(13,181,127,.32);background:rgba(13,181,127,.04)}
 .km2{display:flex;align-items:center;gap:12px;padding:14px;cursor:pointer}
 .ki{width:48px;height:48px;border-radius:16px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;box-shadow:0 6px 16px rgba(13,181,127,.28),0 1px 0 rgba(255,255,255,.25) inset}
@@ -453,6 +458,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <!-- FASE 3 AUDIT FIX: Utils terpisah — format tanggal terpusat -->
 <script src="utils/dateFmt.js"></script>
@@ -1599,10 +1605,14 @@ function _appN(){
   return(t==='pondok'?'Pondok Pesantren':'Asrama')+' '+n;
 }
 async function renderLogin(){
-  await _applyAsramaName();
+  const timeout=(promise,ms,label)=>Promise.race([
+    promise,
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error((label||'operasi')+' timeout')),ms))
+  ]);
+  try{await _applyAsramaName();}catch(e){console.warn('[Login] apply name:',e.message||e);}
   const grid = document.getElementById('ls-grid');
   grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px 0;color:var(--t3);font-size:12px">⏳ Memuat data...</div>';
-  const jk=(await DB.g('settings','jenis_kelamin'))?.value||'perempuan';
+  const jk=(await DB.g('settings','jenis_kelamin').catch(()=>null))?.value||'perempuan';
   const sebutan=jk==='laki'?'Musyrif':'Musyrifah';
   // Update label
   const lblEl=document.querySelector('.ls-lbl');
@@ -1611,7 +1621,10 @@ async function renderLogin(){
   // Jika online, pull users dari Firebase dulu sebelum render
   if (navigator.onLine) {
     try {
-      const fbData = await _fbFetch('/users').catch(()=>null);
+      const fbData = await timeout(_fbFetch('/users'),4500,'pull users').catch(e=>{
+        console.warn('[Login] FB users skipped:',e.message||e);
+        return null;
+      });
       if (fbData && typeof fbData === 'object') {
         const fbUsers = Object.values(fbData).filter(x=>x&&x.id);
         for (const u of fbUsers) {
@@ -1625,7 +1638,7 @@ async function renderLogin(){
           const loc = await DB.g('users', u.id);
           if (!loc || (u.updatedAt||0) >= (loc.updatedAt||0)) {
             // Pakai FBSync._origP bypass (tidak trigger FBSync write-back loop)
-            if (FBSync._origP) { await FBSync._origP('users', u); }
+            if (window.FBSync?._origP) { await window.FBSync._origP('users', u); }
             else { await DB.p('users', u); }
           }
         }
@@ -1633,7 +1646,10 @@ async function renderLogin(){
     } catch(e) { console.warn('[Login] FB pull users:', e.message); }
   }
 
-  const users = await DB.ga('users');
+  const users = await DB.ga('users').catch(e=>{
+    console.warn('[Login] local users failed:',e.message||e);
+    return [];
+  });
   const ms = users.filter(u => u.role === 'musyrifah');
 
   if (!ms.length) {
@@ -2140,7 +2156,7 @@ const App={
     // Build rows: show all active kegiatan with their sub-kegiatan
     // Safety-net: filter out tombstoned items (deleted:true) yang mungkin
     // tertinggal di IndexedDB.
-    const kgAktif=kg.filter(x=>x.aktif&&!x.deleted).sort((a,b)=>a.urutan-b.urutan);
+    const kgAktif=kg.filter(x=>x.aktif!==false&&!x.deleted).sort((a,b)=>a.urutan-b.urutan);
     const rows=kgAktif.map(k=>{
       const kgSes=tses.filter(x=>x.kgId===k.id&&!x.skId);
       const allSubs=sk.filter(x=>x.kgId===k.id&&x.aktif&&!x.deleted).sort((a,b)=>a.urutan-b.urutan);
@@ -2367,15 +2383,17 @@ const App={
         const tses=ses.filter(x=>x.tanggal===today&&x.kgId===k.id&&!x.skId);
         const done=tses.length>0&&tses.every(x=>x.status==='selesai'||x.locked);
         const kTimeBadge=App._timeBadgeHtml(k,null);
-        return`<div class="kg${done?' dn':''}">
+        const off=k.aktif===false;
+        return`<div class="kg${done?' dn':''}${off?' off':''}">
           <div class="km2" onclick="App.nav('kgd',{id:'${k.id}',t:'${escJ(k.nama)}'})">
-            <div class="ki${k.aktif?'':' inact'}">${k.icon}</div>
+            <div class="ki${off?' inact':''}">${k.icon}</div>
             <div style="flex:1;min-width:0">
               <div class="kname">${k.nama}${done?'&nbsp;<span class="done-b">Sudah Diabsen</span>':''}</div>
-              <div class="kmeta">${subs.length} sub \u00B7 ${k.aktif?'Aktif':'Nonaktif'}</div>
+              <div class="kmeta">${subs.length} sub \u00B7 <span class="kg-status-pill${off?' off':''}">${off?'Nonaktif':'Aktif'}</span></div>
               ${kTimeBadge?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${kTimeBadge}</div>`:''}
             </div>
             <div class="ka" onclick="event.stopPropagation()">
+              <button class="kg-toggle${off?' off':''}" onclick="App.toggleKgAktif('${k.id}')" title="${off?'Aktifkan kegiatan':'Nonaktifkan kegiatan'}">${off?'Aktifkan':'Nonaktif'}</button>
               <button class="kb" onclick="App.moveKg('${k.id}',-1)" title="Naik">&#x25B2;</button>
               <button class="kb" onclick="App.moveKg('${k.id}',1)" title="Turun">&#x25BC;</button>
               <button class="kb" onclick="App.editKg('${k.id}')">&#x270E;</button>
@@ -2388,12 +2406,14 @@ const App={
               const ss=ses.filter(x=>x.tanggal===today&&x.skId===s.id);
               const sd=ss.length>0&&ss.every(x=>x.status==='selesai'||x.locked);
               const sTimeBadge=App._timeBadgeHtml(s,k);
-              return`<div class="sic${sd?' dn':''}" data-skid="${s.id}" onclick="App.qSubSesi('${s.id}','${k.id}')">
+              const soff=s.aktif===false;
+              return`<div class="sic${sd?' dn':''}${soff?' off':''}" data-skid="${s.id}" onclick="App.qSubSesi('${s.id}','${k.id}')">
                 <div class="sic-main">
-                  <div class="sic-name">${esc(s.nama)}${sd?'&nbsp;<span class="done-b">\u2713</span>':''}</div>
+                  <div class="sic-name">${esc(s.nama)}${sd?'&nbsp;<span class="done-b">\u2713</span>':''}${soff?' <span class="kg-status-pill off">Nonaktif</span>':''}</div>
                   ${sTimeBadge?`<div class="sic-badges">${sTimeBadge}</div>`:''}
                 </div>
                 <div class="sic-actions">
+                  <button class="kg-toggle${soff?' off':''}" onclick="event.stopPropagation();App.toggleSubAktif('${s.id}')">${soff?'Aktifkan':'Nonaktif'}</button>
                   <button style="padding:4px 9px;border-radius:100px;background:var(--grad);color:#fff;font-size:10px;font-weight:700;cursor:pointer;border:none;flex-shrink:0" onclick="event.stopPropagation();App.qSubSesi('${s.id}','${k.id}')">Absen</button>
                   <button style="padding:4px 9px;border-radius:100px;background:var(--su);border:1.5px solid var(--dv);font-size:10px;font-weight:600;color:var(--t2);cursor:pointer;flex-shrink:0" onclick="event.stopPropagation();App.kelola('${s.id}')">Kelola</button>
                   <button style="width:26px;height:26px;border-radius:50%;background:var(--su2);border:none;font-size:11px;cursor:pointer;flex-shrink:0" onclick="event.stopPropagation();App.editSub('${s.id}')">✏️</button>
@@ -2413,8 +2433,29 @@ const App={
     });
   },
   togSub(id){document.getElementById('sl-'+id)?.classList.toggle('op')},
+  async toggleKgAktif(kgId){if(!_needAdmin())return;
+    const k=await DB.g('kegiatan',kgId);if(!k)return;
+    k.aktif=k.aktif===false?true:false;
+    k.updatedAt=Date.now();
+    await DB.p('kegiatan',k);
+    T(k.aktif?'✅ Kegiatan diaktifkan':'⏸️ Kegiatan dinonaktifkan');
+    if(S.page==='kg')await this.renderKg();
+    else if(S.page==='kgd')await this.renderKgd(kgId);
+  },
+  async toggleSubAktif(skId){if(!_needAdmin())return;
+    const s=await DB.g('subKeg',skId);if(!s)return;
+    s.aktif=s.aktif===false?true:false;
+    s.updatedAt=Date.now();
+    await DB.p('subKeg',s);
+    T(s.aktif?'✅ Sub-kegiatan diaktifkan':'⏸️ Sub-kegiatan dinonaktifkan');
+    if(S.page==='kg')await this.renderKg();
+    else if(S.page==='kgd')await this.renderKgd(s.kgId);
+    else if(S.page==='sub')await this.renderSub(skId);
+  },
 
   async qSesi(kgId){
+    const kCheck=await DB.g('kegiatan',kgId);
+    if(kCheck?.aktif===false){T('Kegiatan sedang nonaktif. Aktifkan dulu untuk absensi.');return;}
     const today=_todayLocal();const sid='ses_'+today+'_'+kgId;
     let sx=await DB.g('sesi',sid);
     if(!sx){sx={id:sid,tanggal:today,kgId,skId:null,status:'draft',createdAt:Date.now(),locked:false};await DB.p('sesi',sx);
@@ -2436,6 +2477,9 @@ const App={
     await this.nav('abs',{sid,t:k?.nama||'Absensi',s:today});
   },
   async qSubSesi(skId,kgId){
+    const [kCheck,skCheck]=await Promise.all([DB.g('kegiatan',kgId),DB.g('subKeg',skId)]);
+    if(kCheck?.aktif===false){T('Kegiatan sedang nonaktif. Aktifkan dulu untuk absensi.');return;}
+    if(skCheck?.aktif===false){T('Sub-kegiatan sedang nonaktif. Aktifkan dulu untuk absensi.');return;}
     const today=_todayLocal();const sid='ses_'+today+'_'+kgId+'_'+skId;
     let sx=await DB.g('sesi',sid);
     if(!sx){sx={id:sid,tanggal:today,kgId,skId,status:'draft',createdAt:Date.now(),locked:false};await DB.p('sesi',sx);
@@ -2474,6 +2518,7 @@ const App={
       </div></div>
       <div style="display:flex;gap:7px;margin-bottom:14px">
         <button style="padding:11px 13px;border-radius:var(--r3);background:var(--su);border:1.5px solid var(--dv);font-size:12px;font-weight:600;color:var(--t2);cursor:pointer" onclick="App.editKg('${kgId}')">✏️ Edit</button>
+        <button class="kg-toggle${k.aktif===false?' off':''}" style="padding:11px 13px;font-size:12px" onclick="App.toggleKgAktif('${kgId}')">${k.aktif===false?'Aktifkan':'Nonaktifkan'}</button>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
         <div style="font-family:var(--fd);font-size:14px;font-weight:800;color:var(--t1)">Sub Kegiatan</div>
@@ -2484,12 +2529,14 @@ const App={
         const sTimeBadge=App._timeBadgeHtml(s,k);
         const sDayBadge=App._dayBadgeHtml(s,k);
         const scheduleLine=(sTimeBadge||sDayBadge)?`<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:5px;align-items:center">${sTimeBadge||''}${sDayBadge?`<span style="display:inline-flex;flex-wrap:wrap;gap:2px">${sDayBadge}</span>`:''}</div>`:'';
-        return `<div style="display:flex;align-items:center;gap:9px;padding:11px;background:var(--su);border:1px solid var(--sub);border-radius:var(--r4);margin-bottom:7px;backdrop-filter:blur(20px);cursor:pointer" onclick="App.nav('sub',{id:'${s.id}',t:'${escJ(s.nama)}',s:'${escJ(k.nama)}'})">
+        const off=s.aktif===false;
+        return `<div class="kg-detail-row${off?' off':''}" style="display:flex;align-items:center;gap:9px;padding:11px;background:var(--su);border:1px solid var(--sub);border-radius:var(--r4);margin-bottom:7px;backdrop-filter:blur(20px);cursor:pointer" onclick="App.nav('sub',{id:'${s.id}',t:'${escJ(s.nama)}',s:'${escJ(k.nama)}'})">
         <div style="width:36px;height:36px;border-radius:11px;background:var(--gs);border:1px solid rgba(13,181,127,.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--a1)">${s.nama.charAt(0)}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:13px;color:var(--t1)">${s.nama}</div>
+          <div style="font-weight:600;font-size:13px;color:var(--t1)">${s.nama} ${off?'<span class="kg-status-pill off">Nonaktif</span>':'<span class="kg-status-pill">Aktif</span>'}</div>
           ${scheduleLine}
         </div>
+        <button class="kg-toggle${off?' off':''}" onclick="event.stopPropagation();App.toggleSubAktif('${s.id}')">${off?'Aktifkan':'Nonaktif'}</button>
         <button style="width:28px;height:28px;border-radius:50%;background:var(--su2);border:none;font-size:12px;cursor:pointer" onclick="event.stopPropagation();App.editSub('${s.id}')">&#x270E;</button>
         <button style="width:28px;height:28px;border-radius:50%;background:var(--su2);border:none;font-size:12px;cursor:pointer" onclick="event.stopPropagation();App.delSub('${s.id}','${escJ(s.nama)}')">&#x2715;</button>
         <span style="font-size:13px;color:var(--t4)">\u2192</span>
@@ -2506,10 +2553,11 @@ const App={
     document.getElementById('sub-body').innerHTML=`<div style="padding:0 15px 15px">
       <div class="hc" style="margin-bottom:12px"><div style="position:relative;z-index:1">
         <div style="font-family:var(--fd);font-size:19px;font-weight:800;color:#fff">${sk.nama}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:3px">${k?.nama||''} \u00B7 ${ms.length} anggota</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:3px">${k?.nama||''} \u00B7 ${ms.length} anggota \u00B7 ${sk.aktif===false?'Nonaktif':'Aktif'}</div>
       </div></div>
       <div style="display:flex;gap:7px;margin-bottom:14px">
         <button class="qb" onclick="App.qSubSesi('${skId}','${sk.kgId}')">Mulai Absensi</button>
+        <button class="kg-toggle${sk.aktif===false?' off':''}" style="padding:11px 13px;font-size:12px" onclick="App.toggleSubAktif('${skId}')">${sk.aktif===false?'Aktifkan':'Nonaktifkan'}</button>
         <button style="padding:11px 13px;border-radius:var(--r3);background:var(--su);border:1.5px solid var(--dv);font-size:12px;font-weight:600;color:var(--t2);cursor:pointer" onclick="App.kelola('${skId}')">Kelola</button>
       </div>
       <div style="font-family:var(--fd);font-size:14px;font-weight:800;color:var(--t1);margin-bottom:9px">Anggota (${ms.length})</div>
@@ -3690,7 +3738,7 @@ const App={
     const histHtml='';
 
     // Per-kegiatan stats
-    const kgAktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
+    const kgAktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
     const kgStatsHtml=kgAktif.map(k=>{
       const kgSes=sesAll.filter(x=>x.kgId===k.id);
       const kgAbs=sntAbs.filter(a=>kgSes.find(x=>x.id===a.sesiId));
@@ -4076,6 +4124,37 @@ const App={
       reader.readAsDataURL(file);
     });
   },
+  _dataUrlToBlob(dataUrl){
+    const parts=String(dataUrl||'').split(',');
+    const meta=parts[0]||'';
+    const bin=atob(parts[1]||'');
+    const mime=(meta.match(/data:([^;]+)/)||[])[1]||'image/jpeg';
+    const arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+    return new Blob([arr],{type:mime});
+  },
+  _storageSafeName(v){
+    return String(v||'item').replace(/[^a-zA-Z0-9_-]+/g,'_').slice(0,80)||'item';
+  },
+  async _uploadPhoto(file,kind,ownerId,max=850,quality=0.86){
+    const dataUrl=await this._resizeImg(file,max,quality);
+    if(!_fbStorage)return dataUrl;
+    try{
+      await _fbAuthReady;
+      const ns=this._storageSafeName((typeof _fbNs==='function') ? _fbNs() : 'default');
+      const safeKind=this._storageSafeName(kind);
+      const safeOwner=this._storageSafeName(ownerId);
+      const path=`tenants/${ns}/photos/${safeKind}/${safeOwner}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.jpg`;
+      const ref=_fbStorage.ref().child(path);
+      const blob=this._dataUrlToBlob(dataUrl);
+      await ref.put(blob,{contentType:'image/jpeg',customMetadata:{app:_appN(),kind:safeKind,ownerId:String(ownerId||'')}});
+      return await ref.getDownloadURL();
+    }catch(e){
+      console.warn('[Storage] upload gagal, fallback base64:',e.code||e.message||e);
+      T('⚠️ Storage belum siap, foto disimpan lokal dulu.');
+      return dataUrl;
+    }
+  },
 
   _profilFoto(sntId){
     DB.g('santri',sntId).then(sn=>{
@@ -4109,10 +4188,10 @@ const App={
     const sntId=inp.dataset.sntId;if(!sntId){T('❌ Error: sntId kosong');return;}
     T('Memproses foto...');
     try{
-      const b64=await this._resizeImg(file,900);
+      const fotoUrl=await this._uploadPhoto(file,'santri',sntId,900,0.88);
       const sn=await DB.g('santri',sntId);
       if(!sn){T('❌ Santri tidak ditemukan');return;}
-      sn.foto=b64;sn.updatedAt=Date.now();
+      sn.foto=fotoUrl;sn.updatedAt=Date.now();
       await DB.p('santri',sn);
       T('✅ Foto tersimpan!');
       CS();
@@ -4123,7 +4202,7 @@ const App={
     const file=inp.files[0];if(!file)return;
     T('Memproses foto...');
     try{
-      const b64=await this._resizeImg(file,750);
+      const b64=await this._uploadPhoto(file,'pelanggaran',S._pelSntId||S._pelId||'umum',750,0.86);
       S._pelFotos=S._pelFotos||[];
       if(S._pelFotos.length>=2){T('Maksimal 2 foto');return;}
       S._pelFotos.push(b64);
@@ -4140,7 +4219,7 @@ const App={
     const file=inp.files[0];if(!file)return;
     T('Memproses foto...');
     try{
-      const b64=await this._resizeImg(file,750);
+      const b64=await this._uploadPhoto(file,'tazir',S._tazirPelId||'umum',750,0.86);
       S._tazirFotoB64=b64;
       const preview=document.getElementById('tazir-foto-preview');
       if(preview)preview.innerHTML=`<img src="${b64}" style="width:80px;height:80px;border-radius:10px;object-fit:cover;border:2px solid var(--a1)">`;
@@ -4160,7 +4239,7 @@ const App={
     const userId=inp.dataset.userId;if(!userId)return;
     T('Memproses foto...');
     try{
-      const b64=await this._resizeImg(file,900);
+      const b64=await this._uploadPhoto(file,'user',userId,900,0.88);
       const usr=await DB.g('users',userId);
       if(!usr){T('❌ User tidak ditemukan');return;}
       usr.foto=b64;usr.updatedAt=Date.now();
@@ -4296,18 +4375,19 @@ const App={
     setTimeout(()=>document.getElementById('cat-isi')?.focus(),80);
   },
 
-  _prevCatFoto(input){
+  async _prevCatFoto(input){
     const file=input.files[0];if(!file)return;
-    const reader=new FileReader();
-    reader.onload=e=>{
+    T('Memproses foto catatan...');
+    try{
+      const src=await this._uploadPhoto(file,'catatan',document.getElementById('cat-snt-id')?.value||'umum',900,0.86);
       const img=document.getElementById('cat-foto-img');
       const prev=document.getElementById('cat-foto-preview');
       const clr=document.getElementById('cat-foto-clear');
-      if(img)img.src=e.target.result;
+      if(img)img.src=src;
       if(prev)prev.style.display='block';
       if(clr)clr.style.display='block';
-    };
-    reader.readAsDataURL(file);
+      T('✅ Foto catatan ditambahkan!');
+    }catch(e){console.error(e);T('❌ Gagal: '+(e.message||e));}
   },
 
   _clearCatFoto(){
@@ -4336,7 +4416,7 @@ const App={
     const poin=document.getElementById('cat-poin')?.value||null;
     // Ambil foto dari preview jika ada
     const fotoImg=document.getElementById('cat-foto-img');
-    const foto=(fotoImg&&fotoImg.src&&fotoImg.src.startsWith('data:'))?fotoImg.src:null;
+    const foto=(fotoImg&&fotoImg.src&&(fotoImg.src.startsWith('data:')||fotoImg.src.startsWith('http')))?fotoImg.src:null;
     if(catId){
       const c=await DB.g('catatanSantri',catId);
       c.isi=isi;
@@ -4481,7 +4561,7 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
     // bisa klik tombol Refresh (long-press untuk sync semua).
     // Filter data bulan ini dari IDB (instant, zero Reads).
     const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg')]);
-    const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
+    const aktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
     const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
     const first=new Date(S.rkYear,S.rkMonth,1).getDay();
     const dim=new Date(S.rkYear,S.rkMonth+1,0).getDate();
@@ -4699,7 +4779,7 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
 
   async _rkBulanan(){
     const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg')]);
-    const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
+    const aktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
     const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
     const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
     const monSes=sesAll.filter(x=>x.tanggal.startsWith(monthPfx));
@@ -4844,7 +4924,7 @@ const monAbs=absAll.filter(a=>a.status&&a.status!=='none'&&monSes.find(x=>x.id==
 const totC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
 monAbs.forEach(a=>{if(totC[a.status]!==undefined)totC[a.status]++});
 const tot=monAbs.length,pct=tot?Math.round(totC.hadir/tot*100):0;
-const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
+const aktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
 let t=`REKAP BULANAN ABSENSI
 `;
 t+=''+_appN()+'\n '+months[S.rkMonth]+' '+S.rkYear+'\n\n';
@@ -5458,7 +5538,7 @@ const monAbs=absAll.filter(a=>a.status&&a.status!=='none'&&monSes.find(x=>x.id==
 const totC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
 monAbs.forEach(a=>{if(totC[a.status]!==undefined)totC[a.status]++;});
 const tot=monAbs.length,pct=tot?Math.round(totC.hadir/tot*100):0;
-const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
+const aktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
 let t='*\uD83D\uDCC6 REKAP BULANAN ABSENSI*\n';
 t+='\uD83C\uDFE0 '+_appN()+'\n\uD83D\uDCC5 '+months[S.rkMonth]+' '+S.rkYear+'\n\n';
 t+='\uD83D\uDCCA *RINGKASAN*\n';
@@ -5505,6 +5585,10 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
         <button onclick="CS();Exp.exportRekapKegiatanBulanan(S.rkYear,S.rkMonth,'excel')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(22,163,74,.07);border:1.5px solid rgba(22,163,74,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
           <span style="font-size:20px">📗</span>
           <div><div style="font-size:13px;font-weight:700;color:#16a34a">Export Bulanan Kegiatan (Excel)</div><div style="font-size:10px;color:var(--t3)">Rekap setiap kegiatan dan sub-kegiatan pada bulan dipilih</div></div>
+        </button>
+        <button onclick="CS();Exp.exportArsipAbsensiBulanan(S.rkYear,S.rkMonth)" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(14,165,233,.08);border:1.5px solid rgba(14,165,233,.24);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
+          <span style="font-size:20px">🗂️</span>
+          <div><div style="font-size:13px;font-weight:700;color:#0284c7">Export Arsip Bulanan Lengkap (Excel)</div><div style="font-size:10px;color:var(--t3)">Semua santri, kegiatan, sub-kegiatan, dan detail absensi bulan ini</div></div>
         </button>
         <button onclick="CS();Exp.exportRekapKegiatanBulanan(S.rkYear,S.rkMonth,'word')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(37,99,235,.07);border:1.5px solid rgba(37,99,235,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
           <span style="font-size:20px">📘</span>
@@ -7077,7 +7161,7 @@ window.open(url,'_blank');
     const file=inp.files[0];if(!file)return;
     T('Memproses foto...');
     try{
-      const b64=await this._resizeImg(file,800);
+      const b64=await this._uploadPhoto(file,'sakit',document.getElementById('sakit-snt-id')?.value||'umum',800,0.86);
       S._sakitFoto=b64;
       const pv=document.getElementById('sakit-foto-preview');
       if(pv)pv.innerHTML=`<img src="${b64}" style="width:64px;height:64px;border-radius:8px;object-fit:cover">`;
@@ -8357,7 +8441,7 @@ window.open(url,'_blank');
     const file=inp.files[0];if(!file)return;
     T('Memproses foto...');
     try{
-      const b64=await this._resizeImg(file,800);
+      const b64=await this._uploadPhoto(file,'izin',document.getElementById('izn-snt-id')?.value||'umum',800,0.86);
       S._iznFoto=b64;
       const pv=document.getElementById('izn-foto-preview');
       if(pv)pv.innerHTML=`<img src="${b64}" style="width:64px;height:64px;border-radius:8px;object-fit:cover">`;
@@ -8699,7 +8783,7 @@ const Tmpl={
     const sakitMap=await App._sakitAktifMap(today);
     let n=0;
     for(const id of allIds){
-      const k=kg.find(x=>x.id===id);if(!k||!k.aktif)continue;
+      const k=kg.find(x=>x.id===id);if(!k||k.aktif===false)continue;
       const sid='ses_'+today+'_'+id;if(ses.find(x=>x.id===sid))continue;
       await DB.p('sesi',{id:sid,tanggal:today,kgId:id,skId:null,status:'draft',createdAt:Date.now(),locked:false});
       for(const s of aktif){
@@ -8714,7 +8798,7 @@ const Tmpl={
   },
   async show(){
     const [kg,tmpl]=await Promise.all([DB.ga('kegiatan'),DB.g('settings','tmpl')]);
-    const ids=tmpl?.kgIds||[];const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
+    const ids=tmpl?.kgIds||[];const aktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
     this._p=[...ids];
     OS(`<div class="sh">Template Harian</div><div class="sb" style="padding-bottom:70px">
       <div style="font-size:11px;color:var(--t3);margin-bottom:10px">Pilih kegiatan otomatis setiap hari.</div>
@@ -8732,7 +8816,7 @@ const Tmpl={
   _tog(id,el){const i=this._p.indexOf(id);const on=i<0;on?this._p.push(id):this._p.splice(i,1);el.style.borderColor=on?'var(--a1)':'var(--dv)';const c=document.getElementById('tc-'+id);if(c){c.style.background=on?'var(--a1)':'var(--dv)';c.textContent=on?'\u2713':''}},
   async _save(){await DB.p('settings',{id:'tmpl',kgIds:this._p});const n=await this.apply();CS();T(n>0?`\u2705 ${n} sesi dibuat!`:'Template disimpan.');await App.dash()},
   async showKhusus(){
-    const kg=await DB.ga('kegiatan');const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
+    const kg=await DB.ga('kegiatan');const aktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
     const dn=['Ahad','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
     this._kh={};for(let d=0;d<7;d++){const t=await DB.g('settings','tmplk_'+d);this._kh[d]=t?.kgIds||[]}
     OS(`<div class="sh">Template Hari Khusus</div><div class="sb" style="padding-bottom:70px">
@@ -9947,6 +10031,61 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
     this._exportRows('Laporan Pelanggaran '+(mode==='harian'?'Harian':'Bulanan'),sub,['No','Tanggal','Nama','Kamar','Jenis','Status','Hukuman/Catatan'],rows,format,'Pelanggaran_'+mode+'_'+(mode==='harian'?today:mp));
   },
 
+  async exportArsipAbsensiBulanan(year,month){
+    T('⏳ Menyiapkan arsip bulanan lengkap...');
+    const monthPfx=`${year}-${String(month+1).padStart(2,'0')}`;
+    const monthsFull=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    const [sesAll,absAll,snt,kg,sk]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg')]);
+    const monSes=sesAll.filter(x=>x.tanggal&&x.tanggal.startsWith(monthPfx));
+    const sesM=mapBy(monSes,'id'),sntM=mapBy(snt,'id'),kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
+    const validStatuses=new Set(['hadir','alpha','izin','sakit','terlambat','uzur']);
+    const rows=absAll
+      .filter(a=>validStatuses.has(a.status)&&sesM[a.sesiId])
+      .map(a=>{
+        const sx=sesM[a.sesiId],sn=sntM[a.sntId]||{};
+        return {
+          tanggal:sx.tanggal||'',
+          nama:sn.nama||'-',
+          kamar:sn.kamar||'-',
+          kegiatan:kgM[sx.kgId]?.nama||'-',
+          sub:sx.skId?(skM[sx.skId]?.nama||'-'):'-',
+          status:a.status,
+          oleh:a.oleh||'-',
+          updatedAt:a.updatedAt||sx.updatedAt||0
+        };
+      })
+      .sort((a,b)=>a.tanggal.localeCompare(b.tanggal)||a.kegiatan.localeCompare(b.kegiatan,'id')||a.sub.localeCompare(b.sub,'id')||App._kamarOrder(a.kamar)-App._kamarOrder(b.kamar)||a.nama.localeCompare(b.nama,'id'));
+    if(!rows.length){T('ℹ️ Tidak ada data absensi pada bulan ini.');return;}
+
+    const sumMap=new Map();
+    rows.forEach(r=>{
+      const key=[r.nama,r.kamar,r.kegiatan,r.sub].join('|');
+      if(!sumMap.has(key))sumMap.set(key,{nama:r.nama,kamar:r.kamar,kegiatan:r.kegiatan,sub:r.sub,hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0,total:0});
+      const rec=sumMap.get(key);
+      rec[r.status]=(rec[r.status]||0)+1;
+      rec.total++;
+    });
+    const summary=[...sumMap.values()]
+      .sort((a,b)=>App._kamarOrder(a.kamar)-App._kamarOrder(b.kamar)||a.nama.localeCompare(b.nama,'id')||a.kegiatan.localeCompare(b.kegiatan,'id')||a.sub.localeCompare(b.sub,'id'));
+    const e=s=>esc(s);
+    const fname=`Arsip_Absensi_Lengkap_${monthsFull[month]}_${year}.xls`;
+    const html=`<table>
+<tr><td colspan="12" style="font-weight:bold;font-size:14pt">Arsip Bulanan Lengkap Absensi - ${monthsFull[month]} ${year}</td></tr>
+<tr><td colspan="12">${e(_appN())}</td></tr>
+<tr><td colspan="12">Dibuat: ${new Date().toLocaleString('id-ID')}</td></tr>
+<tr><td></td></tr>
+<tr><td colspan="12" style="font-weight:bold;background:#dbeafe">Ringkasan per Santri dan Kegiatan/Sub-kegiatan</td></tr>
+<tr><th>No</th><th>Nama Santri</th><th>Kamar</th><th>Kegiatan</th><th>Sub-kegiatan</th><th>Total</th><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Uzur</th></tr>
+${summary.map((r,i)=>`<tr><td>${i+1}</td><td>${e(r.nama)}</td><td>${e(r.kamar)}</td><td>${e(r.kegiatan)}</td><td>${e(r.sub)}</td><td>${r.total}</td><td>${r.hadir}</td><td>${r.alpha}</td><td>${r.izin}</td><td>${r.sakit}</td><td>${r.terlambat}</td><td>${r.uzur}</td></tr>`).join('')}
+<tr><td></td></tr>
+<tr><td colspan="12" style="font-weight:bold;background:#dcfce7">Detail Absensi Bulanan (tanpa status none)</td></tr>
+<tr><th>No</th><th>Tanggal</th><th>Nama Santri</th><th>Kamar</th><th>Kegiatan</th><th>Sub-kegiatan</th><th>Status</th><th>Pengabsen/Sumber</th><th>Update Terakhir</th></tr>
+${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${e(r.tanggal)}</td><td>${e(r.nama)}</td><td>${e(r.kamar)}</td><td>${e(r.kegiatan)}</td><td>${e(r.sub)}</td><td>${e(r.status)}</td><td>${e(r.oleh)}</td><td>${r.updatedAt?new Date(r.updatedAt).toLocaleString('id-ID'):''}</td></tr>`).join('')}
+</table>`;
+    this._downloadHTMLTable(fname,html,'Arsip Bulanan');
+    T('✅ Excel arsip bulanan lengkap berhasil diunduh!');
+  },
+
   async exportRekapKegiatanBulanan(year,month,format){
     T('⏳ Menyiapkan rekap kegiatan bulanan...');
     const monthPfx=`${year}-${String(month+1).padStart(2,'0')}`;
@@ -10827,7 +10966,7 @@ function _rerenderAfterAdminToggle(){
 
 // Login Admin dari halaman login (sebelum masuk app)
 App.loginAdmin = function() {
-  _showAdminPinDialog('\uD83D\uDC51 Login Admin', 'Masukkan PIN admin (default: 5297)', async () => {
+  _showAdminPinDialog('\uD83D\uDC51 Login Admin', 'Masukkan PIN admin', async () => {
     S._adminMode = true;
     // Buat user admin sementara untuk sesi ini
     S.user = { id:'admin', nama:'Admin', role:'admin' };
@@ -12781,13 +12920,17 @@ if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
 const _fbAuth = firebase.auth ? firebase.auth() : null;
 let _fbAuthReady = Promise.resolve(null);
 if (_fbAuth) {
-  _fbAuthReady = _fbAuth.signInAnonymously()
+  _fbAuthReady = Promise.race([
+    _fbAuth.signInAnonymously(),
+    new Promise(res=>setTimeout(()=>res(null),4000))
+  ])
     .catch(e => {
       console.warn('[FirebaseAuth] Anonymous sign-in failed:', e.code || e.message);
       return null;
     });
 }
 const _fsDB = firebase.firestore();
+const _fbStorage = firebase.storage ? firebase.storage() : null;
 // ── BUG FIX (urutan init): settings() HARUS dipanggil SEBELUM operasi
 // Firestore apa pun, termasuk enablePersistence(). Sebelumnya settings()
 // dipanggil SETELAH enablePersistence() sehingga SELALU throw
