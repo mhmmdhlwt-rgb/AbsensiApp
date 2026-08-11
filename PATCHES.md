@@ -448,3 +448,101 @@ TOTAL: 14/14 ✅ ALL PASSED
 
 Test scripts: `scripts/test_combined.js`, `scripts/test_kgd.js`, `scripts/test_uzur.js`, `scripts/test_autolock.js`
 
+
+---
+
+## Audit v20 — Sync correctness & startup cost (2026-08-11)
+
+Audit ini dipicu laporan user: **"kadang device berbeda menampilkan data berbeda"**
+dan **"sebelumnya ada masalah performance di Firebase"** (setelah upgrade ke Blaze).
+
+### Fix A: `settings()` dipanggil setelah Firestore start → SELALU gagal
+**Lokasi:** `index.html` (init Firestore)
+
+`_fsDB.settings({ignoreUndefinedProperties:true})` dipanggil SETELAH
+`enablePersistence()`. Firestore sudah "started", jadi `settings()` selalu throw:
+
+```
+Firestore has already been started and its settings can no longer be changed.
+```
+
+Error di-swallow oleh `catch {}` sehingga tidak pernah terlihat. Akibatnya
+`ignoreUndefinedProperties` **tidak pernah aktif**. Diverifikasi langsung di browser.
+
+**Sekarang:** `settings()` dipanggil sebelum `enablePersistence()`.
+
+### Fix B: `cacheSizeBytes` dioper ke fungsi yang salah
+**Lokasi:** sama
+
+200MB dioper ke `enablePersistence()`, padahal opsi itu milik `settings()`.
+`enablePersistence()` hanya menerima `{synchronizeTabs}` — nilai lain diabaikan
+diam-diam. Cache **tetap 40MB** (default), cepat penuh, dokumen ter-evict, dan
+listener harus re-fetch dari server. Ini memperbesar reads sekaligus bikin lambat.
+
+**Sekarang:** `cacheSizeBytes` ada di `settings()`, plus `merge:true` untuk
+menghilangkan warning "overriding the original host".
+
+### Fix C (UTAMA): `_syncTrigger` tidak pernah benar-benar pull
+**Lokasi:** `_handleDocChange`
+
+Handler `_syncTrigger` hanya melakukan:
+```js
+_invalidateCache();   // kosongkan cache
+_scheduleReRender();  // gambar ulang
+```
+
+Tidak ada `pull()`. Untuk **8 store on-demand** (`santri`, `kegiatan`, `subKeg`,
+`kamar`, `users`, `peraturan`, `kalam`, `auditLog`) tidak ada `onSnapshot`, jadi
+data baru tidak pernah masuk IndexedDB. Re-render hanya menggambar ulang data
+LAMA. Device B baru melihat perubahan setelah navigasi ke halaman terkait — dan
+itu pun sering ter-skip oleh cache 5 menit — atau setelah reload manual.
+
+**Ini penyebab utama "device berbeda menampilkan data berbeda".**
+
+**Sekarang:** trigger dari device lain memicu `pull()` untuk store on-demand yang
+benar-benar berubah (dibaca dari field `stores` di dokumen trigger). Trigger lama
+tanpa field `stores` (dan trigger `type:'import'`) fallback ke semua store on-demand.
+
+### Fix D: deteksi echo `_syncTrigger` pakai device id
+**Lokasi:** `_handleDocChange` + `_flushWrites` + restore/import
+
+Echo dideteksi dengan membandingkan `by` (nama user) vs `S.user.nama`. Dua masalah:
+1. Sebelum login `by='unknown'` dan `myName=''` → device sendiri dianggap "device
+   lain" → muncul toast palsu **"🔄 Sinkronisasi data dari unknown"**.
+2. Dua device dengan user yang SAMA saling meng-skip notifikasi padahal itu
+   perubahan asli dari device lain.
+
+**Sekarang:** field `dev` (device id stabil di localStorage) dipakai untuk echo
+detection. Echo sendiri tidak memicu pull sama sekali (hemat reads).
+
+### Fix E: double-read saat boot (17 store → 8 store)
+**Lokasi:** `FBSync.start()`
+
+`startListeners()` sudah melakukan initial load 9 store realtime — `onSnapshot`
+mengirim seluruh isi koleksi sebagai event `added` saat attach. `pullAll()` lalu
+membaca ULANG ke-17 store, termasuk 9 yang barusan dibaca. Jadi `absensi`
+(koleksi terbesar, bisa ribuan dokumen) dibaca **dua kali setiap app open**.
+
+**Sekarang:** boot memakai `pullOnDemand()` (hanya 8 store on-demand). Tombol
+"Sync Semua" tetap memakai `pullAll()`.
+
+### Fix F: debounce pull dari trigger (cegah read storm)
+**Lokasi:** `_scheduleTriggerPull`
+
+Satu sesi edit di device lain (mis. absen 30 santri) menghasilkan banyak flush,
+dan tiap flush menulis `_syncTrigger`. Tanpa debounce tiap trigger = 1 pull
+koleksi penuh di device penerima.
+
+**Sekarang:** store dikumpulkan 1.5 detik lalu di-pull sekali.
+
+### Test Results (diverifikasi live di browser, bukan hanya baca kode)
+```
+Syntax check (kedua blok <script> inline):        ✅
+settings() sebelum start:                          ✅ terbukti aktif
+Trigger dari device lain → pull /santri:           ✅ (absensi TIDAK di-pull; sudah realtime)
+Echo dari device sendiri → 0 read:                 ✅
+5 trigger beruntun → 1 read (bukan 5):             ✅ debounce bekerja
+Boot pull scope = 8 store on-demand:               ✅ tanpa tumpang tindih listener
+Console warning Firestore: 2 → 1                   ✅ (sisa 1 = deprecation notice)
+App boot, App/DB/FBSync exports utuh:              ✅
+```
