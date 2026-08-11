@@ -13359,6 +13359,31 @@ const FBSync = (() => {
       // Invalidate cache untuk store yang di-trigger
       if (typeof DB.invalidateCache === 'function') DB.invalidateCache();
       if (_invalidateCache) _invalidateCache();
+      // ── BUG FIX UTAMA: trigger harus benar-benar PULL, bukan cuma re-render ──
+      // Sebelumnya handler ini hanya invalidate cache + re-render. Untuk 8 store
+      // ON-DEMAND (santri, kegiatan, subKeg, kamar, users, peraturan, kalam,
+      // auditLog) TIDAK ADA onSnapshot, jadi data baru tidak pernah masuk ke
+      // IndexedDB. Re-render hanya menggambar ulang data lokal yang masih lama,
+      // sehingga device B tetap menampilkan data lama sampai user navigasi
+      // (dan bahkan itu pun bisa ter-skip oleh cache 5 menit) atau reload.
+      // Ini penyebab utama "kadang device beda menampilkan data berbeda".
+      // Sekarang: pull store on-demand yang benar-benar berubah, lalu re-render.
+      if (!fromSelf) {
+        const touched = Array.isArray(data?.stores) ? data.stores : [];
+        // Hanya store on-demand yang perlu di-pull; store realtime sudah
+        // ditangani onSnapshot masing-masing.
+        let toPull = touched.filter(s => _ON_DEMAND_STORES.includes(s));
+        // Trigger lama / dari import tidak membawa daftar `stores` — fallback
+        // ke semua store on-demand supaya tidak ada perubahan yang terlewat.
+        if (!toPull.length && (!touched.length || data?.type === 'import')) {
+          toPull = _ON_DEMAND_STORES.slice();
+        }
+        if (toPull.length) {
+          pull(toPull)
+            .then(() => { toPull.forEach(s => _markPulled(s)); _scheduleReRender(); })
+            .catch(e => console.warn('[SyncTrigger] pull error:', e.message));
+        }
+      }
       // Re-render halaman aktif supaya data fresh dari IDB tampil
       _scheduleReRender();
       // Toast info jika trigger dari device lain
