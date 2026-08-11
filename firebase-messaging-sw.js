@@ -20,13 +20,19 @@ const messaging = firebase.messaging();
 
 // Notifikasi saat app di background / tertutup
 messaging.onBackgroundMessage((payload) => {
-  const title = payload.notification?.title || payload.data?.title || 'Perizinan';
+  const title = payload.notification?.title || payload.data?.title || 'Pesantrenku';
   const body = payload.notification?.body || payload.data?.body || '';
+  const tag = payload.data?.tag || payload.data?.notificationId || 'pesantrenku-notif';
   self.registration.showNotification(title, {
     body,
     icon: '/icon-192.png', // opsional, ganti sesuai ikon app kalau ada
     badge: '/icon-192.png',
-    tag: 'perizinan-notif'
+    tag,
+    renotify: false,
+    data: {
+      url: payload.data?.link || '/',
+      notificationId: payload.data?.notificationId || tag
+    }
   });
 });
 
@@ -34,10 +40,11 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then((clientList) => {
+      const targetUrl = event.notification.data?.url || '/';
       for (const client of clientList) {
         if ('focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow('/');
+      if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });

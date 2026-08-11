@@ -5339,14 +5339,22 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
     const fotos=S._pelFotos||[];
     const now=Date.now();
     const sntAll=await DB.ga('santri');const sntM=mapBy(sntAll,'id');
+    const saved=[];
     for(const sntId of S._pelSelSnt){
       const sn=sntM[sntId];
-      await DB.p('pelanggaran',{id:uid(),tipe:'manual',sntId,sntNama:sn?.nama||sntId,
+      const rec={id:uid(),tipe:'manual',sntId,sntNama:sn?.nama||sntId,
         kgId:'',kgNama:'',skId:'',skNama:'',tanggal:tgl,
         deskripsi:desk,jeniHukuman:huk,catatan:cat,
         fotoBukti:fotos,status:huk?'sudah':'belum',
-        catatanHukuman:huk,createdAt:now,updatedAt:now});
+        catatanHukuman:huk,createdAt:now,updatedAt:now};
+      await DB.p('pelanggaran',rec);
+      saved.push(rec);
     }
+    const names=saved.map(p=>p.sntNama).filter(Boolean).join(', ');
+    await _postSystemChatMessage(
+      `Pelanggaran manual dicatat untuk ${names||saved.length+' santri'}.\nCatatan: ${desk}`,
+      {label:'Pelanggaran Manual',title:'Pelanggaran Manual Dicatat',body:`${names||saved.length+' santri'}: ${desk}`.slice(0,180),icon:'⚠️',sevColor:'#ef4444',subtype:'pelanggaran_manual',dedupeKey:'pel_manual_'+now,target:'musyrifah'}
+    ).catch(()=>{});
     CS();T('✅ Pelanggaran disimpan!');await this.renderPel();
   },
   async _editPel(pelId){
@@ -7403,15 +7411,15 @@ window.open(url,'_blank');
     try{
       const sn=await DB.g('santri',sakit.sntId);
       const nama=sn?.nama||'Santri';
-      let msg='';
+      let msg='',label='Catatan Sakit',subtype='sakit',dedupeKey='sakit_'+tipe+'_'+sakit.id;
       if(tipe==='baru'){
         msg=`🤒 *Catatan Sakit Baru*\n${nama} dicatat sakit sejak ${sakit.tglMulai}\n🩺 ${sakit.diagnosis||'-'}${sakit.penanganan?'\n💊 '+sakit.penanganan:''}\n\nSemua absensi otomatis berstatus Sakit sampai sembuh.`;
+        label='Catatan Sakit Baru';subtype='sakit_baru';
       }else if(tipe==='sembuh'){
         msg=`✅ *Sembuh*\n${nama} ditandai sudah sembuh. Absensi kembali normal.`;
+        label='Santri Sembuh';subtype='sakit_sembuh';
       }
-      if(typeof ChatModule!=='undefined'&&ChatModule.addSystem){
-        ChatModule.addSystem(msg);
-      }
+      if(msg)await _postSystemChatMessage(msg,{label,title:label,body:msg.replace(/[*_`#>]/g,'').replace(/\s+/g,' ').slice(0,180),icon:tipe==='baru'?'🤒':'✅',sevColor:tipe==='baru'?'#8b5cf6':'#0db57f',subtype,dedupeKey,target:'musyrifah'});
     }catch(e){console.warn('[NotifSakit] error:',e);}
   },
 
@@ -7490,13 +7498,6 @@ window.open(url,'_blank');
       rec.lamaHari=_uzurDayCount(rec.tglMulai);
       rec.updatedAt=Date.now();
       await DB.p('uzur',rec);
-      // Kirim notifikasi sistem ke Chat & Notifikasi
-      const sn=await DB.g('santri',sntId);
-      const nm=sn?.nama||'Santri';
-      await _postSystemChatMessage(
-        `Uzur ${nm} telah berakhir. Durasi uzur: ${rec.lamaHari} hari.`,
-        {label:'Uzur Berakhir', icon:'🟣', sevColor:'var(--cu)', subtype:'uzur_end'}
-      ).catch(()=>{});
       return rec;
     }finally{
       // Lepas lock setelah 2 detik (anti-race untuk event paralel yang sudah antri)
@@ -7535,7 +7536,7 @@ window.open(url,'_blank');
           await DB.p('uzur',u);  // persist SEBELUM kirim notif
           await _postSystemChatMessage(
             `${nm} telah berstatus uzur selama 7 hari. Mohon dilakukan pemeriksaan.`,
-            {label:'Pengingat Uzur', icon:'🟣', sevColor:'#f59e0b', subtype:'uzur_reminder_7'}
+            {label:'Pengingat Uzur', icon:'🟣', sevColor:'#f59e0b', subtype:'uzur_reminder_7', dedupeKey:'uzur_7_'+u.id}
           ).catch(()=>{});
         }
         // Hari ke-15: nonaktifkan otomatis
@@ -7550,7 +7551,7 @@ window.open(url,'_blank');
           await DB.p('uzur',u);  // persist SEBELUM kirim notif
           await _postSystemChatMessage(
             `Status uzur ${nm} telah mencapai batas maksimal 15 hari dan dinonaktifkan otomatis.`,
-            {label:'Uzur Auto-Nonaktif', icon:'🟣', sevColor:'#ef4444', subtype:'uzur_auto_15'}
+            {label:'Uzur Auto-Nonaktif', icon:'🟣', sevColor:'#ef4444', subtype:'uzur_auto_15', dedupeKey:'uzur_15_'+u.id}
           ).catch(()=>{});
         }
       }
@@ -8496,6 +8497,7 @@ window.open(url,'_blank');
     }
     per.updatedAt=Date.now();
     await DB.p('perizinan',per);
+    if(newStatus==='sembuh')this._kirimNotifPerizinan('kembali',per).catch(()=>{});
     T(newStatus==='sembuh'?'✅ Santri ditandai sembuh.':'🔄 Status dikembalikan ke masih sakit.');
     await this.renderIzn();
   },
@@ -8543,6 +8545,7 @@ window.open(url,'_blank');
     // Catat berapa hari terlambat berdasarkan tenggat tglSelesai+jamKembali
     per.hariTerlambat=this._hitungHariTerlambat(per);
     await DB.p('perizinan',per);
+    this._kirimNotifPerizinan('kembali',per).catch(()=>{});
     T(per.hariTerlambat>0?`✅ Ditandai sudah kembali. Terlambat ${per.hariTerlambat} hari.`:'✅ Ditandai sudah kembali tepat waktu.');
     await this.renderIzn();
   },
@@ -8695,19 +8698,48 @@ window.open(url,'_blank');
 
   // Notifikasi push (FCM). Memanggil serverless function /api/send-notif.
   // Lihat firebase-messaging-sw.js & api/send-notif.js untuk setup lengkap.
+  async _sendPushNotif(p){
+    try{
+      if(!navigator.onLine)return;
+      const notifKey=localStorage.getItem('notif_shared_secret')||'';
+      const headers={'Content-Type':'application/json'};
+      if(notifKey)headers['x-assalam-notif-key']=notifKey;
+      const res=await fetch('/api/send-notif',{method:'POST',headers,body:JSON.stringify({ns:_fbNs(),...p})});
+      let data=null;
+      try{data=await res.json();}catch(e){}
+      localStorage.setItem('push_last_send',JSON.stringify({ok:res.ok,status:res.status,data,ts:Date.now()}));
+      if(!res.ok)throw new Error(data?.error||('HTTP '+res.status));
+      return data;
+    }catch(e){
+      localStorage.setItem('push_last_send',JSON.stringify({ok:false,error:e.message||String(e),ts:Date.now()}));
+      console.warn('[PushNotif] gagal kirim:',e.message||e);
+      return null;
+    }
+  },
   async _kirimNotifPerizinan(tipe,per){
     try{
       const sn=await DB.g('santri',per.sntId);
       const payloads={
-        baru_musyrifah:{title:'📋 Izin Baru Dicatat',body:`Izin ${per.tipeIzin} untuk ${sn?.nama||'santri'} telah dicatat`,target:'musyrifah'},
+        baru_musyrifah:{title:'Izin Baru Dicatat',body:`Izin ${per.tipeIzin} untuk ${sn?.nama||'santri'} telah dicatat`,target:'musyrifah',type:'izin',tag:'izin_'+per.id,notificationId:'izin_'+per.id},
+        kembali:{title:'Santri Sudah Kembali',body:`${sn?.nama||'Santri'} sudah kembali ke pondok`,target:'musyrifah',type:'izin_kembali',tag:'izin_kembali_'+per.id,notificationId:'izin_kembali_'+per.id},
         dibatalkan:{title:'✕ Catatan Izin Dibatalkan',body:`Catatan izin ${per.tipeIzin} untuk ${sn?.nama||'santri'} dibatalkan`,target:'wali',sntId:per.sntId},
-        telat_kembali:{title:'⏰ Santri Terlambat Kembali',body:`${sn?.nama||'Santri'} belum kembali dari izin ${per.tipeIzin} (tenggat sudah lewat)`,target:'musyrifah'},
+        telat_kembali:{title:'Santri Terlambat Kembali',body:`${sn?.nama||'Santri'} belum kembali dari izin ${per.tipeIzin} (tenggat sudah lewat)`,target:'musyrifah',type:'izin_telat',tag:'izin_telat_'+per.id,notificationId:'izin_telat_'+per.id},
       };
       const p=payloads[tipe];if(!p)return;
-      const notifKey=localStorage.getItem('notif_shared_secret')||'';
-      const headers={'Content-Type':'application/json'};
-      if(notifKey)headers['x-assalam-notif-key']=notifKey;
-      await fetch('/api/send-notif',{method:'POST',headers,body:JSON.stringify({ns:_fbNs(),...p})});
+      if(p.target==='musyrifah'){
+        await _postSystemChatMessage(p.body,{
+          label:p.title,
+          title:p.title,
+          body:p.body,
+          icon:'📋',
+          sevColor:'#0db57f',
+          subtype:p.type||'perizinan',
+          dedupeKey:p.notificationId||p.tag,
+          target:'musyrifah'
+        });
+      }else{
+        await this._sendPushNotif(p);
+      }
     }catch(e){console.warn('[Notif] gagal kirim (offline/belum dikonfigurasi):',e);}
   },
 
@@ -10066,24 +10098,46 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
       rec.total++;
     });
     const summary=[...sumMap.values()]
-      .sort((a,b)=>App._kamarOrder(a.kamar)-App._kamarOrder(b.kamar)||a.nama.localeCompare(b.nama,'id')||a.kegiatan.localeCompare(b.kegiatan,'id')||a.sub.localeCompare(b.sub,'id'));
-    const e=s=>esc(s);
+      .sort((a,b)=>a.kegiatan.localeCompare(b.kegiatan,'id')||a.sub.localeCompare(b.sub,'id')||App._kamarOrder(a.kamar)-App._kamarOrder(b.kamar)||a.nama.localeCompare(b.nama,'id'));
+    const x=s=>String(s??'').replace(/[<>&'"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[c]));
+    const safeSheet=n=>String(n||'Sheet').replace(/[\[\]\*\/\\\?\:]/g,' ').slice(0,31).trim()||'Sheet';
+    const rowXml=vals=>`<Row>${vals.map(v=>`<Cell><Data ss:Type="${typeof v==='number'?'Number':'String'}">${x(v)}</Data></Cell>`).join('')}</Row>`;
+    const tableXml=(name,headers,bodyRows)=>`<Worksheet ss:Name="${x(safeSheet(name))}"><Table>${rowXml(headers)}${bodyRows.map(rowXml).join('')}</Table></Worksheet>`;
+    const sheets=[];
+    sheets.push(tableXml('Ringkasan',
+      ['No','Kegiatan','Sub-kegiatan','Nama Santri','Kamar','Total','Hadir','Alpha','Izin','Sakit','Terlambat','Uzur'],
+      summary.map((r,i)=>[i+1,r.kegiatan,r.sub,r.nama,r.kamar,r.total,r.hadir,r.alpha,r.izin,r.sakit,r.terlambat,r.uzur])
+    ));
+    const groupMap=new Map();
+    summary.forEach(r=>{
+      const key=(r.kegiatan||'-')+' - '+(r.sub||'-');
+      if(!groupMap.has(key))groupMap.set(key,[]);
+      groupMap.get(key).push(r);
+    });
+    [...groupMap.entries()].forEach(([label,list],idx)=>{
+      list.sort((a,b)=>App._kamarOrder(a.kamar)-App._kamarOrder(b.kamar)||a.nama.localeCompare(b.nama,'id'));
+      sheets.push(tableXml((idx+1)+' '+label,
+        ['No','Nama Santri','Kamar','Total','Hadir','Alpha','Izin','Sakit','Terlambat','Uzur'],
+        list.map((r,i)=>[i+1,r.nama,r.kamar,r.total,r.hadir,r.alpha,r.izin,r.sakit,r.terlambat,r.uzur])
+      ));
+    });
+    sheets.push(tableXml('Detail Bersih',
+      ['No','Tanggal','Kegiatan','Sub-kegiatan','Nama Santri','Kamar','Status','Pengabsen/Sumber','Update Terakhir'],
+      rows.map((r,i)=>[i+1,r.tanggal,r.kegiatan,r.sub,r.nama,r.kamar,r.status,r.oleh,r.updatedAt?new Date(r.updatedAt).toLocaleString('id-ID'):''])
+    ));
     const fname=`Arsip_Absensi_Lengkap_${monthsFull[month]}_${year}.xls`;
-    const html=`<table>
-<tr><td colspan="12" style="font-weight:bold;font-size:14pt">Arsip Bulanan Lengkap Absensi - ${monthsFull[month]} ${year}</td></tr>
-<tr><td colspan="12">${e(_appN())}</td></tr>
-<tr><td colspan="12">Dibuat: ${new Date().toLocaleString('id-ID')}</td></tr>
-<tr><td></td></tr>
-<tr><td colspan="12" style="font-weight:bold;background:#dbeafe">Ringkasan per Santri dan Kegiatan/Sub-kegiatan</td></tr>
-<tr><th>No</th><th>Nama Santri</th><th>Kamar</th><th>Kegiatan</th><th>Sub-kegiatan</th><th>Total</th><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Uzur</th></tr>
-${summary.map((r,i)=>`<tr><td>${i+1}</td><td>${e(r.nama)}</td><td>${e(r.kamar)}</td><td>${e(r.kegiatan)}</td><td>${e(r.sub)}</td><td>${r.total}</td><td>${r.hadir}</td><td>${r.alpha}</td><td>${r.izin}</td><td>${r.sakit}</td><td>${r.terlambat}</td><td>${r.uzur}</td></tr>`).join('')}
-<tr><td></td></tr>
-<tr><td colspan="12" style="font-weight:bold;background:#dcfce7">Detail Absensi Bulanan (tanpa status none)</td></tr>
-<tr><th>No</th><th>Tanggal</th><th>Nama Santri</th><th>Kamar</th><th>Kegiatan</th><th>Sub-kegiatan</th><th>Status</th><th>Pengabsen/Sumber</th><th>Update Terakhir</th></tr>
-${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${e(r.tanggal)}</td><td>${e(r.nama)}</td><td>${e(r.kamar)}</td><td>${e(r.kegiatan)}</td><td>${e(r.sub)}</td><td>${e(r.status)}</td><td>${e(r.oleh)}</td><td>${r.updatedAt?new Date(r.updatedAt).toLocaleString('id-ID'):''}</td></tr>`).join('')}
-</table>`;
-    this._downloadHTMLTable(fname,html,'Arsip Bulanan');
-    T('✅ Excel arsip bulanan lengkap berhasil diunduh!');
+    const xml=`<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<DocumentProperties xmlns="urn:schemas-microsoft-com:office:office"><Title>Arsip Bulanan Lengkap Absensi</Title><Author>${x(_appN())}</Author><Created>${new Date().toISOString()}</Created></DocumentProperties>
+${sheets.join('')}
+</Workbook>`;
+    const blob=new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    T('✅ Excel arsip bulanan multi-sheet berhasil diunduh!');
   },
 
   async exportRekapKegiatanBulanan(year,month,format){
@@ -11300,6 +11354,17 @@ const ChatModule = {
     // AUDIT v3f: Invalidate cache supaya loadMessages fetch fresh
     this._lastChatFetchTs = 0;
     try { await _fbFetch('/chat/'+msg.id, 'PUT', msg); } catch(e){}
+    if(window.App?._sendPushNotif){
+      App._sendPushNotif({
+        title:'Pesan Chat Baru',
+        body:`${msg.sender}: ${text.slice(0,160)}`,
+        target:'musyrifah',
+        type:'chat',
+        tag:'chat_'+msg.id,
+        notificationId:'chat_'+msg.id,
+        link:'/'
+      }).catch(()=>{});
+    }
     await this.loadMessages();
   },
 
@@ -11321,22 +11386,44 @@ const ChatModule = {
 // tampil sebagai kartu notice, bukan bubble chat biasa. Dipakai oleh
 // pengecekan otomatis seperti _checkAlphaWarning().
 async function _postSystemChatMessage(text, opts={}) {
+  const dedupeKey=opts.dedupeKey||opts.notificationId||null;
+  if(dedupeKey){
+    try{
+      const existing=(await ChatDB.getAll()).find(m=>m.dedupeKey===dedupeKey);
+      if(existing)return existing;
+    }catch(e){}
+  }
   const msg = {
-    id: uid(),
+    id: opts.id || (dedupeKey?('sys_'+String(dedupeKey).replace(/[^a-zA-Z0-9_-]+/g,'_')):uid()),
     sender: 'Sistem',
     system: true,
     label: opts.label || 'Notifikasi Sistem',
     icon: opts.icon || '🔔',
     sevColor: opts.sevColor || '#f59e0b',
     subtype: opts.subtype || null,
+    dedupeKey,
     text,
     ts: Date.now(),
     updatedAt: Date.now()
   };
   await ChatDB.put(msg);
   try { await _fbFetch('/chat/'+msg.id, 'PUT', msg); } catch(e){}
+  if(opts.push!==false&&window.App?._sendPushNotif){
+    const title=opts.title||msg.label||'Notifikasi Pesantrenku';
+    const body=opts.body||String(text||'').replace(/[*_`#>]/g,'').replace(/\s+/g,' ').slice(0,180);
+    App._sendPushNotif({
+      title,body,
+      target:opts.target||'musyrifah',
+      sntId:opts.sntId||null,
+      type:opts.subtype||'system',
+      tag:dedupeKey||msg.id,
+      notificationId:dedupeKey||msg.id,
+      link:opts.link||'/'
+    }).catch(()=>{});
+  }
   if (S.page === 'chat') ChatModule.loadMessages().catch(()=>{});
   else _chatBgCheck().catch(()=>{});
+  return msg;
 }
 
 async function _chatBgCheck() {
@@ -14519,6 +14606,11 @@ window.addEventListener('offline', () => { FBSync._dot('off'); FBSync.stopListen
           <div class="st3"><div class="sl3">Unggah Semua Data ke Cloud</div><div class="sv">Setup awal atau setelah import</div></div>
           <div class="sa">\u2192</div>
         </div>
+        <div class="sr2" onclick="_pushDebugStatus(true)">
+          <div class="si4" style="background:rgba(14,165,233,.09);border-color:rgba(14,165,233,.18)">🔔</div>
+          <div class="st3"><div class="sl3">Cek Push Notification</div><div class="sv">Lihat izin notifikasi, token device, dan kirim test push</div></div>
+          <div class="sa">\u2192</div>
+        </div>
       </div>
     </div>`;
     const sections = setBody.querySelectorAll('[style*="margin-bottom:14px"]');
@@ -14536,20 +14628,82 @@ window.addEventListener('offline', () => { FBSync._dot('off'); FBSync.stopListen
 // ════════════════════════════════════════════════════════════
 async function _setupPushNotif(role,sntId){
   try{
-    if(!('serviceWorker' in navigator)||!('Notification' in window))return;
-    if(firebaseConfig.projectId==='TODO-ISI')return; // belum dikonfigurasi
+    if(!('serviceWorker' in navigator)||!('Notification' in window)){
+      localStorage.setItem('push_setup_status',JSON.stringify({ok:false,reason:'Browser tidak mendukung Service Worker/Notification',ts:Date.now()}));
+      return null;
+    }
+    if(firebaseConfig.projectId==='TODO-ISI'){
+      localStorage.setItem('push_setup_status',JSON.stringify({ok:false,reason:'Firebase belum dikonfigurasi',ts:Date.now()}));
+      return null;
+    }
     const perm=await Notification.requestPermission();
-    if(perm!=='granted')return;
-    const reg=await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    if(perm!=='granted'){
+      localStorage.setItem('push_setup_status',JSON.stringify({ok:false,reason:'Izin notifikasi belum diberikan: '+perm,ts:Date.now()}));
+      return null;
+    }
+    await _fbAuthReady;
+    if(_fbAuth&&!_fbAuth.currentUser){
+      localStorage.setItem('push_setup_status',JSON.stringify({ok:false,reason:'Anonymous Auth belum aktif. Cek Firebase Authentication.',ts:Date.now()}));
+      return null;
+    }
+    const reg=await navigator.serviceWorker.register('/firebase-messaging-sw.js',{updateViaCache:'none'});
+    try{await reg.update();}catch(e){}
     const messaging=firebase.messaging();
+    if(!window._fcmForegroundBound&&messaging.onMessage){
+      window._fcmForegroundBound=true;
+      messaging.onMessage(payload=>{
+        try{
+          if(Notification.permission!=='granted')return;
+          const title=payload.notification?.title||payload.data?.title||'Pesantrenku';
+          const body=payload.notification?.body||payload.data?.body||'';
+          const tag=payload.data?.tag||payload.data?.notificationId||title;
+          navigator.serviceWorker.ready.then(r=>r.showNotification(title,{
+            body,icon:'/icon-192.png',badge:'/icon-192.png',tag,renotify:false,
+            data:{url:payload.data?.link||'/',notificationId:payload.data?.notificationId||tag}
+          })).catch(()=>{});
+        }catch(e){}
+      });
+    }
     const token=await messaging.getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
-    if(!token)return;
+    if(!token){
+      localStorage.setItem('push_setup_status',JSON.stringify({ok:false,reason:'Token FCM kosong. Cek Web Push certificate/VAPID.',ts:Date.now()}));
+      return null;
+    }
     const ns=_fbNs();
     const docId=role==='musyrifah'?`musyrifah_${token}`:`wali_${sntId}_${token}`;
     await _fsDB.collection('tenants').doc(ns).collection('fcmTokens').doc(docId).set({
-      token, role, sntId: sntId||null, updatedAt: Date.now()
+      token, role, sntId: sntId||null, deviceId:_deviceId(), user:S.user?.nama||null, updatedAt: Date.now()
     });
-  }catch(e){console.warn('[Push] setup gagal (cek konfigurasi Firebase):',e);}
+    localStorage.setItem('push_setup_status',JSON.stringify({ok:true,role,sntId:sntId||null,docId,tokenPreview:token.slice(0,12)+'...',ts:Date.now()}));
+    return token;
+  }catch(e){
+    localStorage.setItem('push_setup_status',JSON.stringify({ok:false,reason:e.code||e.message||String(e),ts:Date.now()}));
+    console.warn('[Push] setup gagal (cek konfigurasi Firebase):',e);
+    return null;
+  }
+}
+
+async function _pushDebugStatus(showToast=true){
+  const setup=JSON.parse(localStorage.getItem('push_setup_status')||'null');
+  const last=JSON.parse(localStorage.getItem('push_last_send')||'null');
+  let tokenCount='?';
+  try{
+    await _fbAuthReady;
+    const snap=await _fsDB.collection('tenants').doc(_fbNs()).collection('fcmTokens').get();
+    tokenCount=String(snap.size);
+  }catch(e){tokenCount='gagal baca token: '+(e.code||e.message||e);}
+  const lines=[
+    'Permission: '+(('Notification' in window)?Notification.permission:'tidak didukung'),
+    'Token setup: '+(setup?(setup.ok?'OK '+(setup.tokenPreview||''):'GAGAL '+(setup.reason||'')):'belum jalan'),
+    'Jumlah token tenant: '+tokenCount,
+    'Kirim terakhir: '+(last?(last.ok?'OK '+JSON.stringify(last.data||{}):'GAGAL '+(last.error||JSON.stringify(last.data||{}))):'belum ada')
+  ];
+  if(showToast)OS(`<div class="sh">Status Push Notification</div><div class="sb">
+    <pre style="white-space:pre-wrap;font-size:11px;line-height:1.55;background:var(--su);border:1px solid var(--dv);border-radius:var(--r3);padding:12px">${esc(lines.join('\n'))}</pre>
+    <button class="bg2 bw" onclick="CS();_setupPushNotif('musyrifah').then(()=>_pushDebugStatus(true))">Daftarkan Ulang Token</button>
+    <button class="bg2 bw" onclick="CS();App._sendPushNotif({title:'Test Push Pesantrenku',body:'Jika pesan ini muncul, FCM sudah aktif.',target:'musyrifah',type:'test',tag:'test_push_'+Date.now(),notificationId:'test_push_'+Date.now(),link:'/'}).then(()=>_pushDebugStatus(true))">Kirim Test Push</button>
+  </div>`);
+  return {setup,last,tokenCount};
 }
 
 // ════════════════════════════════════════════════════════════
