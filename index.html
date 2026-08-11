@@ -13248,6 +13248,23 @@ const FBSync = (() => {
     izn:  () => App.renderIzn?.(),
   };
 
+  // ── Debounced pull untuk _syncTrigger ──
+  // Kumpulkan store dari beberapa trigger beruntun, lalu pull SEKALI.
+  const _pendingTriggerPull = new Set();
+  let _triggerPullTimer = null;
+  function _scheduleTriggerPull() {
+    if (_triggerPullTimer) clearTimeout(_triggerPullTimer);
+    _triggerPullTimer = setTimeout(() => {
+      _triggerPullTimer = null;
+      const stores = Array.from(_pendingTriggerPull);
+      _pendingTriggerPull.clear();
+      if (!stores.length || !navigator.onLine) return;
+      pull(stores)
+        .then(() => { stores.forEach(s => _markPulled(s)); _scheduleReRender(); })
+        .catch(e => console.warn('[SyncTrigger] pull error:', e.message));
+    }, 1500);
+  }
+
   function _scheduleReRender() {
     if (_renderTimer) clearTimeout(_renderTimer);
     _renderTimer = setTimeout(() => {
@@ -13390,11 +13407,12 @@ const FBSync = (() => {
         if (!toPull.length && (!touched.length || data?.type === 'import')) {
           toPull = _ON_DEMAND_STORES.slice();
         }
-        if (toPull.length) {
-          pull(toPull)
-            .then(() => { toPull.forEach(s => _markPulled(s)); _scheduleReRender(); })
-            .catch(e => console.warn('[SyncTrigger] pull error:', e.message));
-        }
+        // Debounce: satu sesi edit di device lain (mis. absen 30 santri
+        // berturut-turut) menghasilkan banyak flush → banyak trigger.
+        // Tanpa debounce tiap trigger = 1 pull koleksi penuh (read storm).
+        // Kumpulkan store selama 1.5 detik, lalu pull sekali saja.
+        toPull.forEach(s => _pendingTriggerPull.add(s));
+        if (_pendingTriggerPull.size) _scheduleTriggerPull();
       }
       // Re-render halaman aktif supaya data fresh dari IDB tampil
       _scheduleReRender();
