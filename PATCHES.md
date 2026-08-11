@@ -546,3 +546,43 @@ Boot pull scope = 8 store on-demand:               ✅ tanpa tumpang tindih list
 Console warning Firestore: 2 → 1                   ✅ (sisa 1 = deprecation notice)
 App boot, App/DB/FBSync exports utuh:              ✅
 ```
+
+### Fix G: Master data (santri, kegiatan, subKeg, kamar) jadi REALTIME
+**Lokasi:** `_REALTIME_STORES` / `_ON_DEMAND_STORES`
+
+Fix C membuat `_syncTrigger` benar-benar pull, tapi itu tetap solusi tidak
+langsung: perubahan master data baru sampai ke device lain lewat mekanisme
+trigger yang rapuh. Keempat store inilah yang paling sering memicu keluhan
+"device berbeda menampilkan data berbeda".
+
+**Sekarang:** 13 store realtime (dari 9), 4 store on-demand (dari 8).
+
+`auditLog` sengaja **tetap on-demand**: store ini append-only dan tumbuh terus,
+dan hanya dipakai di halaman Pengaturan (60 entri terakhir). Menjadikannya
+realtime berarti mengunduh seluruh riwayat audit ke setiap device — justru
+sumber boros reads yang ingin dihindari.
+
+**Perbaikan ikutan yang ditemukan saat mengerjakan ini:**
+- Health check listener memakai angka hardcoded `< 5`. Dengan 13 store realtime,
+  ambang itu berarti 8 listener bisa mati tanpa pernah terdeteksi & di-restart.
+  Sekarang memakai `_REALTIME_STORES.length`.
+- `pullEssential()` (dipanggil tiap login) mem-pull persis 4 store yang kini
+  sudah punya listener → double-read tiap login. Sekarang difilter otomatis.
+
+### Test Results Fix G (live di browser, terhubung Firestore asli)
+```
+Listener attach untuk 13 store realtime:          ✅ 13/13, tidak ada yang missing
+Boot pull = hanya 4 store on-demand:              ✅ users, peraturan, kalam, auditLog
+Overlap listener vs boot pull:                     ✅ 0 (tidak ada double-read)
+pullEssential() setelah perubahan:                 ✅ 0 read (semua sudah realtime)
+Navigasi ke halaman Santri:                        ✅ 0 read (sebelumnya 1 koleksi penuh)
+Perubahan santri masuk ke IndexedDB:               ✅ via jalur listener
+Integritas data tenant setelah test:               ✅ 18 santri / 4 kegiatan / 7 subKeg utuh
+```
+
+### Catatan biaya
+Master data punya sedikit dokumen (~18 santri, 4 kegiatan, 7 sub-kegiatan di
+tenant contoh) dan jarang berubah, jadi listener nyaris tidak pernah mengirim
+event setelah initial load. Biaya initial load-nya pun bukan tambahan: sebelumnya
+store yang sama tetap dibaca lewat `pullEssential()` saat login. Yang hilang
+justru pembacaan berulang saat navigasi antar halaman.
