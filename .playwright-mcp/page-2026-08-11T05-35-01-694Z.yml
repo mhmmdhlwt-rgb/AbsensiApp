@@ -1,0 +1,31 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]: 🔄 Sinkronisasi data dari unknown
+  - generic "Status sinkronisasi Firebase"
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5] [cursor=pointer]: 🕌
+    - generic [ref=f1e6]: Pilih Pesantren / Asrama
+    - generic [ref=f1e7]: Pilih yang sudah terdaftar, atau daftarkan yang baru
+    - generic [ref=f1e9] [cursor=pointer]:
+      - generic [ref=f1e10]: 🏠
+      - generic [ref=f1e11]:
+        - generic [ref=f1e12]: Assalam
+        - generic [ref=f1e14]: Asrama
+      - generic [ref=f1e15]: →
+    - button "+ Daftar Pesantren/Asrama Baru" [ref=f1e16] [cursor=pointer]
+    - generic [ref=f1e17] [cursor=pointer]: Made with ♥️ by Fatum Studio
+  - generic [ref=f1e19]:
+    - generic [ref=f1e20]: 🔐 Assalam
+    - generic [ref=f1e21]: Masukkan PIN pesantren
+    - generic [ref=f1e27]:
+      - button "1" [ref=f1e28] [cursor=pointer]
+      - button "2" [ref=f1e29] [cursor=pointer]
+      - button "3" [ref=f1e30] [cursor=pointer]
+      - button "4" [ref=f1e31] [cursor=pointer]
+      - button "5" [ref=f1e32] [cursor=pointer]
+      - button "6" [ref=f1e33] [cursor=pointer]
+      - button "7" [ref=f1e34] [cursor=pointer]
+      - button "8" [ref=f1e35] [cursor=pointer]
+      - button "9" [ref=f1e36] [cursor=pointer]
+      - button "Batal" [ref=f1e37] [cursor=pointer]
+      - button "0" [ref=f1e38] [cursor=pointer]
+      - button "⌫" [ref=f1e39] [cursor=pointer]

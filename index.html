@@ -9571,7 +9571,7 @@ await this._share(t);
       if (navigator.onLine) {
         try {
           const triggerRef = _fsDB.collection('tenants').doc(targetNs).collection('settings').doc('_syncTrigger');
-          await triggerRef.set({ ts: Date.now(), by: S.user?.nama || '-', type: 'import' }, { merge: true });
+          await triggerRef.set({ ts: Date.now(), by: S.user?.nama || '-', dev: _deviceId(), type: 'import' }, { merge: true });
           console.log('[Restore] Sync trigger broadcasted');
         } catch(e) { console.warn('[Restore] sync trigger error:', e); }
       }
@@ -12510,32 +12510,48 @@ const VAPID_KEY = "BOWn62C0_B6EUjAEF1DdJTVVpSnIfpLg9baKbKpebw8sC1vCn7GrQ0NoxsqLw
 
 if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
 const _fsDB = firebase.firestore();
-// ── AUDIT FIX: Aktifkan offline persistence dengan cache size yang diperbesar ──
-// Sebelumnya hanya synchronizeTabs:true. Untuk tenant dengan >100 santri &
-// berbulan-bulan absensi, cache default 40MB cepat penuh dan evict dokumen
-// penting, sehingga listener onSnapshot harus re-fetch (banyak Reads).
-// Naikkan ke 200MB (lebih dari cukup untuk cache semua store utama).
+// ── BUG FIX (urutan init): settings() HARUS dipanggil SEBELUM operasi
+// Firestore apa pun, termasuk enablePersistence(). Sebelumnya settings()
+// dipanggil SETELAH enablePersistence() sehingga SELALU throw
+// "Firestore has already been started and its settings can no longer be
+// changed" — dan karena error-nya di-swallow, `ignoreUndefinedProperties`
+// tidak pernah aktif (write dengan field undefined tetap bisa gagal).
+//
+// BUG FIX (cacheSizeBytes): opsi ini milik settings(), BUKAN
+// enablePersistence() (yang hanya menerima {synchronizeTabs}). Sebelumnya
+// 200MB dioper ke enablePersistence() dan diabaikan diam-diam, jadi cache
+// tetap di default 40MB — cepat penuh untuk tenant besar, dokumen ter-evict,
+// dan listener onSnapshot harus re-fetch (boros Reads).
 try {
-  _fsDB.enablePersistence?.({
-    synchronizeTabs: true,
-    cacheSizeBytes: 200 * 1024 * 1024  // 200MB (Firebase min 40MB)
-  }).catch((e) => {
+  _fsDB.settings({
+    ignoreUndefinedProperties: true,
+    cacheSizeBytes: 200 * 1024 * 1024,  // 200MB (Firebase min 40MB)
+    merge: true  // jangan timpa host/ssl default — hilangkan warning "overriding the original host"
+  });
+} catch (e) { console.warn('[FBSync] settings() failed:', e.message); }
+// Offline persistence — dipanggil SETELAH settings().
+try {
+  _fsDB.enablePersistence?.({ synchronizeTabs: true }).catch((e) => {
     console.warn('[FBSync] offline persistence failed:', e.code || e.message);
   });
 } catch (e) { /* Safari iOS kadang throw — biarkan swallow */ }
-// ── AUDIT FIX: Configure Firestore settings untuk efisiensi Reads ──
-// `ignoreUndefinedProperties` mencegah error penulisan field undefined
-// (yang sebelumnya ditangani manual via _fsClean). `merge:true` di setDoc
-// tetap dipakai di _fbPatch. `experimentalForceLongPolling` opsional untuk
-// jaringan lemah (lihat setting di bawah — di-off secara default karena
-// mempengaruhi latensi multi-tenant).
-try {
-  _fsDB.settings({ ignoreUndefinedProperties: true });
-} catch (e) { /* settings hanya bisa dipanggil sekali per instance */ }
 
 // Tenant namespace — diisi dari localStorage setelah setup wizard
 function _fbNs() {
   return localStorage.getItem('tenant_ns') || 'default';
+}
+// ── Device id stabil per-browser ──
+// Dipakai untuk mendeteksi echo _syncTrigger: trigger yang ditulis oleh
+// device ini sendiri tidak boleh memunculkan toast "sinkronisasi dari X".
+// Nama user tidak bisa dipakai untuk ini (bisa kosong sebelum login, dan
+// dua device bisa login sebagai user yang sama).
+function _deviceId() {
+  let id = localStorage.getItem('device_id');
+  if (!id) {
+    id = (crypto?.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+    try { localStorage.setItem('device_id', id); } catch (e) {}
+  }
+  return id;
 }
 function _tenantCol(store) {
   return _fsDB.collection('tenants').doc(_fbNs()).collection(store);
@@ -12908,7 +12924,7 @@ const FBSync = (() => {
     // (mis. santri/kegiatan) lag atau miss.
     if (pushedCount > 0 && _origP) {
       try {
-        const trigger = { id: '_syncTrigger', ts: Date.now(), stores: Array.from(storesTouched), by: S?.user?.nama || 'unknown', _ts: Date.now() };
+        const trigger = { id: '_syncTrigger', ts: Date.now(), stores: Array.from(storesTouched), by: S?.user?.nama || 'unknown', dev: _deviceId(), _ts: Date.now() };
         await _fbPatch('/settings/_syncTrigger', trigger);
       } catch(e) { /* best-effort, jangan fail */ }
     }
@@ -13328,19 +13344,25 @@ const FBSync = (() => {
     // onSnapshot sendiri yang akan terima perubahan langsung. _syncTrigger
     // cuma jadi "safety net" untuk kasus listener lag/miss.
     if (store === 'settings' && doc.id === '_syncTrigger') {
-      // Cek apakah trigger ini dari device lain (bukan dari device ini sendiri)
-      // dengan bandingkan timestamp. Jika ts trigger == ts write terakhir device
-      // ini, skip (echo). Best-effort: bandingkan by 'by' field.
+      // ── BUG FIX: deteksi echo pakai device id, bukan nama user ──
+      // Sebelumnya echo dideteksi dengan membandingkan field `by` (nama user)
+      // terhadap S.user.nama. Dua masalah:
+      //   1. Saat trigger ditulis SEBELUM login, `by` = 'unknown' sedangkan
+      //      myName = '' → dianggap "device lain" → device sendiri kena toast
+      //      "Sinkronisasi data dari unknown" (echo palsu).
+      //   2. Dua device yang login sebagai user yang SAMA saling meng-skip
+      //      toast padahal itu benar-benar perubahan dari device lain.
+      // Sekarang: bandingkan `dev` (device id stabil per-browser).
       const data = doc.data ? doc.data() : doc;
       const by = data?.by || '';
-      const myName = (S?.user?.nama || '').trim();
+      const fromSelf = data?.dev ? (data.dev === _deviceId()) : false;
       // Invalidate cache untuk store yang di-trigger
       if (typeof DB.invalidateCache === 'function') DB.invalidateCache();
       if (_invalidateCache) _invalidateCache();
       // Re-render halaman aktif supaya data fresh dari IDB tampil
       _scheduleReRender();
       // Toast info jika trigger dari device lain
-      if (by && by !== myName) {
+      if (!fromSelf && by && by !== 'unknown') {
         if (window.T) T('🔄 Sinkronisasi data dari ' + by, 2000);
       }
       return; // Jangan proses doc ini lebih lanjut

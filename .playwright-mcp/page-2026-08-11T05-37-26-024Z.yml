@@ -1,0 +1,9 @@
+- generic [active] [ref=f3e1]:
+  - generic "Status sinkronisasi Firebase"
+  - generic [ref=f3e4]:
+    - generic [ref=f3e5] [cursor=pointer]: 🕌
+    - generic [ref=f3e6]: Pilih Pesantren / Asrama
+    - generic [ref=f3e7]: Pilih yang sudah terdaftar, atau daftarkan yang baru
+    - generic [ref=f3e8]: ⏳ Memuat daftar...
+    - button "+ Daftar Pesantren/Asrama Baru" [ref=f3e10] [cursor=pointer]
+    - generic [ref=f3e11] [cursor=pointer]: Made with ♥️ by Fatum Studio
