@@ -38,7 +38,7 @@
       "collectionGroup": "sesi",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "tanggal", "order": "DESCENDING" },
+        { "fieldPath": "tanggal", "order": "ASCENDING" },
         { "fieldPath": "kgId", "order": "ASCENDING" }
       ]
     }
