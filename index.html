@@ -451,6 +451,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <!-- FASE 3 AUDIT FIX: Utils terpisah — format tanggal terpusat -->
@@ -1065,6 +1066,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
 // otomatis tidak ada duplikat, siapa pun yang menulis terakhir yang menang
 // (atau malah tidak masalah karena isinya identik).
 const absDetId=(sesiId,sntId)=>'abs_'+sesiId+'_'+sntId;
+const pelAutoId=(absId)=>'pel_auto_'+absId;
 const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const escJ=s=>String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\\\'").replace(/"/g,'&quot;').replace(/</g,'\\x3c').replace(/>/g,'\\x3e').replace(/\n/g,'\\n').replace(/\r/g,'\\r');
 const mapBy=(arr,k)=>{const m={};arr.forEach(x=>m[x[k]]=x);return m};
@@ -1343,7 +1345,10 @@ function _isShalatKegiatan(kgName,subName){
 // Hari ke-1 dimulai dari tglMulai.
 function _uzurDayCount(tglMulai){
   if(!tglMulai)return 1;
-  const start=new Date(tglMulai+'T00:00:00');
+  const raw=String(tglMulai);
+  const datePart=(raw.match(/\d{4}-\d{2}-\d{2}/)||[])[0]||raw.slice(0,10);
+  const start=new Date(datePart+'T00:00:00');
+  if(Number.isNaN(start.getTime()))return 1;
   const today=new Date(_todayLocal()+'T00:00:00');
   const diff=Math.floor((today-start)/86400000);
   return Math.max(1,diff+1);
@@ -2684,7 +2689,7 @@ const App={
     // update. Flag S._absInFlight memastikan hanya satu operasi absen
     // per-sntId yang berjalan pada satu waktu. Flag di-clear di finally.
     if (!S._absInFlight) S._absInFlight = {};
-    const flightKey = absId;
+    const flightKey = absId || absDetId(sid,sntId);
     if (S._absInFlight[flightKey]) {
       // Sudah ada operasi yang berjalan untuk absen ini — drop silently.
       // Tidak perlu toast karena ini guard anti-double-click, bukan error.
@@ -2730,13 +2735,14 @@ const App={
     // perubahan kecuali admin mode aktif.
     let ab=await DB.g('absensi',absId);const old=ab?.status;
     const _adminOv=S._adminOverride===true;
-    const olehLabel=(_adminOv?'[Admin] ':'')+(S.user?.nama||'-');
+    const _nfcOv=S._nfcInFlight===true||App._nfcInFlight===true;
+    const olehLabel=(_adminOv?'[Admin] ':'')+(_nfcOv?'[NFC] ':'')+(S.user?.nama||'NFC');
     if(!ab)ab={id:absDetId(sid,sntId),sesiId:sid,sntId,status:newSt,oleh:olehLabel,updatedAt:Date.now()};
     else{ab.status=newSt;ab.oleh=olehLabel;ab.updatedAt=Date.now()}
     // ── PERFORMANCE: parallel DB reads ─────────────────────────
     const [sn,sx]=await Promise.all([DB.g('santri',sntId),DB.g('sesi',sid)]);
     // Guard: jika sesi terkunci & bukan admin mode, tolak perubahan
-    if (sx?.locked && !_adminOv) {
+    if (sx?.locked && !_adminOv && !(_nfcOv&&newSt==='hadir'&&(old==='alpha'||old==='none'||!old))) {
       T('🔒 Sesi terkunci! Aktifkan Mode Admin di Pengaturan untuk mengubah.', 3000);
       return;
     }
@@ -2775,7 +2781,7 @@ const App={
       const allPelCheck=await DB.ga('pelanggaran');
       const existing=allPelCheck.find(p=>p.absId===ab.id&&p.tipe==='auto');
       if(!existing){
-        await DB.p('pelanggaran',{id:uid(),tipe:'auto',absId:ab.id,sntId,sntNama:sn?.nama||'-',
+        await DB.p('pelanggaran',{id:pelAutoId(ab.id),tipe:'auto',absId:ab.id,sntId,sntNama:sn?.nama||'-',
           kgId:sx?.kgId||'',kgNama:k?.nama||'-',skId:sx?.skId||'',skNama:sk?.nama||'',
           tanggal:sx?.tanggal||_todayLocal(),
           status:'belum',catatanHukuman:'',fotoHukuman:'',
@@ -2953,7 +2959,7 @@ const App={
           alphaCount++;
           if(!pelByAbs[a.id]){
             const sn=sntM[a.sntId];
-            const newPel={id:uid(),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
+            const newPel={id:pelAutoId(a.id),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
               kgId:sx.kgId,kgNama:kg?.nama||'-',skId:sx.skId||null,skNama:sk?.nama||'',
               tanggal:today,
               status:'belum',catatanHukuman:'',fotoHukuman:'',
@@ -3121,7 +3127,7 @@ const App={
             // HANYA untuk alpha — bukan untuk uzur/sakit/izin
             if(!pelByAbs[a.id]){
               const sn=sntMap[a.sntId];
-              const newPel={id:uid(),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
+              const newPel={id:pelAutoId(a.id),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
                 kgId:s.kgId,kgNama:parent.nama||'-',skId:s.id,skNama:s.nama||'-',
                 tanggal:today,
                 status:'belum',catatanHukuman:'',fotoHukuman:'',
@@ -3215,7 +3221,7 @@ const App={
             alphaCount++;
             if(!pelByAbs[a.id]){
               const sn=sntMap[a.sntId];
-              const newPel={id:uid(),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
+              const newPel={id:pelAutoId(a.id),tipe:'auto',absId:a.id,sntId:a.sntId,sntNama:sn?.nama||'-',
                 kgId:k.id,kgNama:k.nama||'-',skId:null,skNama:'',
                 tanggal:today,
                 status:'belum',catatanHukuman:'',fotoHukuman:'',
@@ -5461,6 +5467,14 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
         ${!isH?`<button onclick="CS();Exp.exportAlphaBulanan(S.rkYear,S.rkMonth)" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(239,68,68,.07);border:1.5px solid rgba(239,68,68,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
           <span style="font-size:20px">❌</span>
           <div><div style="font-size:13px;font-weight:700;color:#ef4444">Export Rekap Alpha (Excel)</div><div style="font-size:10px;color:var(--t3)">Pivot: nama santri × sub kegiatan, khusus Alpha bulan ini</div></div>
+        </button>
+        <button onclick="CS();Exp.exportRekapKegiatanBulanan(S.rkYear,S.rkMonth,'excel')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(22,163,74,.07);border:1.5px solid rgba(22,163,74,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
+          <span style="font-size:20px">📗</span>
+          <div><div style="font-size:13px;font-weight:700;color:#16a34a">Export Bulanan Kegiatan (Excel)</div><div style="font-size:10px;color:var(--t3)">Rekap setiap kegiatan dan sub-kegiatan pada bulan dipilih</div></div>
+        </button>
+        <button onclick="CS();Exp.exportRekapKegiatanBulanan(S.rkYear,S.rkMonth,'pdf')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(220,38,38,.07);border:1.5px solid rgba(220,38,38,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
+          <span style="font-size:20px">📕</span>
+          <div><div style="font-size:13px;font-weight:700;color:#dc2626">Export Bulanan Kegiatan (PDF)</div><div style="font-size:10px;color:var(--t3)">Laporan siap cetak sesuai bulan yang dipilih</div></div>
         </button>`:''}
       </div>
     </div>`);
@@ -6877,7 +6891,7 @@ window.open(url,'_blank');
   async _izinAktifMap(tanggal){
     const per=await DB.ga('perizinan');
     const m={};
-    per.filter(p=>p.status==='disetujui'&&p.tglMulai<=tanggal&&p.tglSelesai>=tanggal).forEach(p=>{m[p.sntId]=p.id});
+    per.filter(p=>p.status==='disetujui'&&!p.sudahKembali&&p.tglMulai<=tanggal&&p.tglSelesai>=tanggal).forEach(p=>{m[p.sntId]=p.id});
     return m;
   },
   // Terapkan izin yang baru disetujui ke absensi yang sudah terlanjur dibuat (retroaktif)
@@ -6891,8 +6905,18 @@ window.open(url,'_blank');
   // Kalau izin dibatalkan/ditolak setelah sempat disetujui, kembalikan absensi yg auto-set jadi alpha lagi
   async _lepasIzinDariAbsensi(per){
     const abs=await DB.ga('absensi');
+    const ses=await DB.ga('sesi');
+    const sesM=mapBy(ses,'id');
     const targets=abs.filter(a=>a.perizinanId===per.id&&a.status==='izin');
-    for(const a of targets){a.status='alpha';a.perizinanId=null;a.oleh='Sistem (Perizinan dibatalkan)';a.updatedAt=Date.now();await DB.p('absensi',a);}
+    for(const a of targets){
+      const sx=sesM[a.sesiId];
+      const locked=!!sx?.locked;
+      a.status=locked?'alpha':'none';
+      a.perizinanId=null;
+      a.oleh=locked?'Sistem (Perizinan dibatalkan)':'Sistem (Perizinan dibatalkan - belum dikunci)';
+      a.updatedAt=Date.now();
+      await DB.p('absensi',a);
+    }
     return targets.length;
   },
 
@@ -8558,7 +8582,10 @@ window.open(url,'_blank');
         telat_kembali:{title:'⏰ Santri Terlambat Kembali',body:`${sn?.nama||'Santri'} belum kembali dari izin ${per.tipeIzin} (tenggat sudah lewat)`,target:'musyrifah'},
       };
       const p=payloads[tipe];if(!p)return;
-      await fetch('/api/send-notif',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ns:_fbNs(),...p})});
+      const notifKey=localStorage.getItem('notif_shared_secret')||'';
+      const headers={'Content-Type':'application/json'};
+      if(notifKey)headers['x-assalam-notif-key']=notifKey;
+      await fetch('/api/send-notif',{method:'POST',headers,body:JSON.stringify({ns:_fbNs(),...p})});
     }catch(e){console.warn('[Notif] gagal kirim (offline/belum dikonfigurasi):',e);}
   },
 
@@ -9264,55 +9291,78 @@ const [sn,absAll,sesAll,kg,sk,catatan,sakitAllSntShare]=await Promise.all([
 DB.g('santri',sntId),DB.ga('absensi'),DB.ga('sesi'),DB.ga('kegiatan'),DB.ga('subKeg'),DB.ga('catatanSantri'),DB.ga('catatanSakit').catch(()=>[])
 ]);
 if(!sn)return;
-const kgM=mapBy(kg,'id');const skM=mapBy(sk,'id');
+const kgM=mapBy(kg,'id');const skM=mapBy(sk,'id');const sesM=mapBy(sesAll,'id');
 const now=new Date();
-let filterFn,periodeLabel;
+const mn=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+let periodeLabel,sa;
 if(mode==='harian'){
 const today=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
-filterFn=sx=>sx.tanggal===today;
 periodeLabel=`Harian: ${today}`;
+sa=absAll.filter(a=>a.sntId===sntId&&sesM[a.sesiId]?.tanggal===today);
 }else{
-const mp=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-filterFn=sx=>sx.tanggal.startsWith(mp);
-const mn=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-periodeLabel=`Bulanan: ${mn[now.getMonth()]} ${now.getFullYear()}`;
+periodeLabel='Bulanan: dikelompokkan per bulan';
+sa=absAll.filter(a=>a.sntId===sntId&&sesM[a.sesiId]);
 }
-const filteredSes=sesAll.filter(filterFn);
-const sa=absAll.filter(a=>a.sntId===sntId&&filteredSes.find(x=>x.id===a.sesiId));
-const cnt={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
+const cnt={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
 sa.forEach(a=>{if(cnt[a.status]!==undefined)cnt[a.status]++});
 const tot=sa.length;const pct=tot?Math.round(cnt.hadir/tot*100):0;
 
 let t=`REKAP SANTRI\n`;
 t+=`${sn.nama}`;
-if(sn.panggilan)t+=`(${sn.panggilan})`;
-t+=`\n ${periodeLabel}\n`;
-t+=`Kamar: ${sn.kamar}`;
-if(sn.kelas)t+=`| ${sn.kelas}`;
-if(sn.ttl)t+='\n TTL: '+sn.ttl;
-if(sn.alamat)t+='\n Alamat: '+sn.alamat;
+if(sn.panggilan)t+=` (${sn.panggilan})`;
+t+=`\n${periodeLabel}\n`;
+t+=`Kamar: ${sn.kamar||'-'}`;
+if(sn.kelas)t+=` | ${sn.kelas}`;
+if(sn.ttl)t+='\nTTL: '+sn.ttl;
+if(sn.alamat)t+='\nAlamat: '+sn.alamat;
 t+='\n\n';
 
-// Ringkasan
 t+=`RINGKASAN KEHADIRAN\n`;
 t+=`Hadir : ${cnt.hadir}x\n`;
 t+=`Alpha : ${cnt.alpha}x\n`;
 t+=`Izin : ${cnt.izin}x\n`;
 t+=`Sakit : ${cnt.sakit}x\n`;
 t+=`Terlambat: ${cnt.terlambat}x\n`;
+t+=`Uzur : ${cnt.uzur}x\n`;
 t+=`Persentase: ${pct}% hadir\n\n`;
 
-// Riwayat lengkap per kegiatan + sub kegiatan
-t+=`RIWAYAT ABSENSI\n`;
-sa.slice(-30).reverse().forEach(a=>{
-const sx=filteredSes.find(x=>x.id===a.sesiId);
-if(!sx)return;
-const k=kgM[sx.kgId];
-const skItem=sx.skId?skM[sx.skId]:null;
-const stLabel={hadir:' Hadir',alpha:' Alpha',izin:' Izin',sakit:' Sakit',terlambat:' Terlambat'}[a.status]||a.status;
-t+=`${sx.tanggal.slice(5)} | ${k?.nama||'-'}${skItem?` (${skItem.nama})`:''} | ${stLabel}\n`;
+const byMonth=new Map();
+sa.forEach(a=>{
+const sx=sesM[a.sesiId];if(!sx?.tanggal)return;
+const m=sx.tanggal.slice(0,7);
+if(!byMonth.has(m))byMonth.set(m,[]);
+byMonth.get(m).push(a);
 });
-if(!sa.length)t+='(Tidak ada data di periode ini)\n';
+const monthKeys=mode==='harian'?[...byMonth.keys()]:[...byMonth.keys()].sort().reverse();
+t+=`RINGKASAN PER KEGIATAN\n`;
+if(!monthKeys.length)t+='(Tidak ada data di periode ini)\n';
+monthKeys.forEach(m=>{
+const arr=byMonth.get(m)||[];
+if(mode!=='harian'){
+const y=Number(m.slice(0,4)),mo=Number(m.slice(5,7))-1;
+t+=`\n${mn[mo]} ${y}\n`;
+}
+const groups=new Map();
+arr.forEach(a=>{
+const sx=sesM[a.sesiId];if(!sx)return;
+const k=kgM[sx.kgId];const skItem=sx.skId?skM[sx.skId]:null;
+const key=(sx.kgId||'')+'|'+(sx.skId||'');
+if(!groups.has(key))groups.set(key,{label:(k?.nama||'-')+(skItem?' - '+skItem.nama:''),cnt:{hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0},total:0});
+const g=groups.get(key);if(g.cnt[a.status]!==undefined)g.cnt[a.status]++;g.total++;
+});
+[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label,'id')).forEach(g=>{
+const p=g.total?Math.round(g.cnt.hadir/g.total*100):0;
+t+=`• ${g.label}: Hadir ${g.cnt.hadir}/${g.total} (${p}%)`;
+const extra=[];
+if(g.cnt.alpha)extra.push(`Alpha ${g.cnt.alpha}`);
+if(g.cnt.izin)extra.push(`Izin ${g.cnt.izin}`);
+if(g.cnt.sakit)extra.push(`Sakit ${g.cnt.sakit}`);
+if(g.cnt.terlambat)extra.push(`Terlambat ${g.cnt.terlambat}`);
+if(g.cnt.uzur)extra.push(`Uzur ${g.cnt.uzur}`);
+if(extra.length)t+=` | ${extra.join(', ')}`;
+t+='\n';
+});
+});
 
 // Catatan
 const catSantri=catatan.filter(c=>c.sntId===sntId);
@@ -9359,9 +9409,17 @@ await this._share(t);
     const stores=['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','users','kamar','settings','catatanSantri','pelanggaran','peraturan','kalam','perizinan','uzur','catatanSakit'];
     const d={exportedAt:new Date().toISOString(),version:'6',tenant_ns:localStorage.getItem('tenant_ns'),tenant_nama:localStorage.getItem('tenant_nama'),tenant_tipe:localStorage.getItem('tenant_tipe')};
     for(const s of stores)d[s]=await DB.ga(s);
-    // Chat messages disimpan di localStorage (bukan IndexedDB)
-    try{d.chat=await ChatDB.getAll();}catch(e){d.chat=[];}
-    const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+	    // Chat messages disimpan di localStorage (bukan IndexedDB)
+	    try{d.chat=await ChatDB.getAll();}catch(e){d.chat=[];}
+	    try{
+	      d.fcmTokens=[];
+	      if(navigator.onLine){
+	        await _fbAuthReady;
+	        const snap=await _fsDB.collection('tenants').doc(_fbNs()).collection('fcmTokens').get();
+	        snap.forEach(doc=>d.fcmTokens.push(Object.assign({id:doc.id},doc.data()||{})));
+	      }
+	    }catch(e){d.fcmTokens=[];}
+	    const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`assalam-backup-${_todayLocal()}.json`;a.click();URL.revokeObjectURL(url);T('\u2705 Backup diunduh!');
   },
   showImportBackup(){
@@ -9540,9 +9598,9 @@ await this._share(t);
       }
       // Restore chat messages (localStorage + cloud)
       // AUDIT v3h: Pakai targetNs untuk cloud restore
-      if(Array.isArray(data.chat)){
-        try{
-          localStorage.setItem('chat_msgs',JSON.stringify(data.chat.slice(-200)));
+	      if(Array.isArray(data.chat)){
+	        try{
+	          localStorage.setItem('chat_msgs',JSON.stringify(data.chat.slice(-200)));
           // Sync ke Firestore dengan batch (lebih cepat dari one-by-one)
           if (navigator.onLine && data.chat.length > 0) {
             let batch = _fsDB.batch(), cnt = 0;
@@ -9555,9 +9613,26 @@ await this._share(t);
             }
             if (cnt > 0) await batch.commit();
           }
-        }catch(e){console.warn('[Restore] chat error:',e);}
-      }
-      // Restore tenant metadata (opsional — hanya kalau ada & user konfirmasi)
+	        }catch(e){console.warn('[Restore] chat error:',e);}
+	      }
+	      if(Array.isArray(data.fcmTokens)&&navigator.onLine){
+	        try{
+	          await _fbAuthReady;
+	          const col=_fsDB.collection('tenants').doc(targetNs).collection('fcmTokens');
+	          let batch=_fsDB.batch(),cnt=0;
+	          for(const item of data.fcmTokens){
+	            if(item&&item.id){
+	              const cleaned=_fsClean(item);
+	              const id=cleaned.id;
+	              delete cleaned.id;
+	              batch.set(col.doc(id),cleaned,{merge:false});
+	              if(++cnt>=450){await batch.commit();batch=_fsDB.batch();cnt=0;}
+	            }
+	          }
+	          if(cnt>0)await batch.commit();
+	        }catch(e){console.warn('[Restore] fcmTokens error:',e);}
+	      }
+	      // Restore tenant metadata (opsional — hanya kalau ada & user konfirmasi)
       if(data.tenant_ns && data.tenant_nama){
         // Jangan override tenant aktif — user mungkin di tenant berbeda.
         // Hanya info bahwa metadata tersimpan di file.
@@ -9763,6 +9838,74 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
     doc.text('Diekspor dari '+_appN()+' pada '+new Date().toLocaleString('id-ID'),14,292);
     doc.save(fname+'.pdf');
     T('\u2705 PDF berhasil diunduh!');
+  },
+
+  async exportRekapKegiatanBulanan(year,month,format){
+    T('⏳ Menyiapkan rekap kegiatan bulanan...');
+    const monthPfx=`${year}-${String(month+1).padStart(2,'0')}`;
+    const monthsFull=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    const [sesAll,absAll,kg,sk]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('kegiatan'),DB.ga('subKeg')]);
+    const monSes=sesAll.filter(x=>x.tanggal&&x.tanggal.startsWith(monthPfx));
+    const skM=mapBy(sk,'id'),kgM=mapBy(kg,'id');
+    const rows=[];
+    const addRow=(label,type,sessions)=>{
+      const abs=absAll.filter(a=>sessions.some(sx=>sx.id===a.sesiId));
+      if(!sessions.length&&!abs.length)return;
+      const c={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0,none:0};
+      abs.forEach(a=>{if(c[a.status]!==undefined)c[a.status]++});
+      const total=abs.length;
+      const pct=total?Math.round((c.hadir/total)*100):0;
+      rows.push({label,type,sesi:sessions.length,total,pct,...c});
+    };
+    kg.slice().sort((a,b)=>(a.urutan||0)-(b.urutan||0)).forEach(k=>{
+      const kSes=monSes.filter(sx=>sx.kgId===k.id);
+      const main=kSes.filter(sx=>!sx.skId);
+      if(main.length)addRow(k.nama||'-','Kegiatan',main);
+      sk.filter(s=>s.kgId===k.id).sort((a,b)=>(a.urutan||0)-(b.urutan||0)).forEach(s=>{
+        const sSes=kSes.filter(sx=>sx.skId===s.id);
+        if(sSes.length)addRow((k.nama||'-')+' - '+(s.nama||'-'),'Sub-kegiatan',sSes);
+      });
+      if(!main.length&&!sk.some(s=>s.kgId===k.id)){
+        addRow(k.nama||'-','Kegiatan',kSes);
+      }
+    });
+    if(!rows.length){T('ℹ️ Tidak ada data rekap pada bulan ini.');return;}
+    const fname=`Rekap_Kegiatan_${monthsFull[month]}_${year}`;
+    if(format==='pdf'){
+      if(typeof window.jspdf==='undefined'){T('❌ Modul PDF belum siap, coba lagi sebentar.');return;}
+      const {jsPDF}=window.jspdf;
+      const doc=new jsPDF({unit:'mm',format:'a4'});
+      doc.setFont('helvetica','bold');doc.setFontSize(14);
+      doc.text('Rekap Bulanan Per Kegiatan',14,16);
+      doc.setFont('helvetica','normal');doc.setFontSize(10);
+      doc.text(_appN()+' - '+monthsFull[month]+' '+year,14,23);
+      let y=33;
+      const headers=['Kegiatan/Sub','Sesi','H','A','I','S','T','U','%'];
+      const widths=[72,14,12,12,12,12,12,12,14];
+      const drawRow=(vals,bold)=>{
+        if(y>282){doc.addPage();y=16;}
+        let x=14;
+        doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(bold?8.5:8);
+        vals.forEach((v,i)=>{doc.text(String(v),x,y,{maxWidth:widths[i]-2});x+=widths[i];});
+        y+=7;
+      };
+      drawRow(headers,true);
+      rows.forEach(r=>drawRow([r.label,r.sesi,r.hadir,r.alpha,r.izin,r.sakit,r.terlambat,r.uzur,r.pct+'%'],false));
+      doc.setFontSize(8);doc.setTextColor(140);
+      doc.text('Diekspor dari '+_appN()+' pada '+new Date().toLocaleString('id-ID'),14,292);
+      doc.save(fname+'.pdf');
+      T('✅ PDF rekap kegiatan berhasil diunduh!');
+      return;
+    }
+    const h=`<table>
+<tr><td colspan="11" style="font-weight:bold;font-size:14pt">Rekap Bulanan Per Kegiatan - ${monthsFull[month]} ${year}</td></tr>
+<tr><td colspan="11">${esc(_appN())}</td></tr>
+<tr><td></td></tr>
+<tr><th>No</th><th>Jenis</th><th>Kegiatan/Sub-kegiatan</th><th>Sesi</th><th>Total</th><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Uzur</th><th>Persentase Hadir</th></tr>
+${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.type)}</td><td>${esc(r.label)}</td><td>${r.sesi}</td><td>${r.total}</td><td>${r.hadir}</td><td>${r.alpha}</td><td>${r.izin}</td><td>${r.sakit}</td><td>${r.terlambat}</td><td>${r.uzur}</td><td>${r.pct}%</td></tr>`).join('')}
+</table>`;
+    this._downloadHTMLTable(fname+'.xls',h,'Rekap Kegiatan');
+    T('✅ Excel rekap kegiatan berhasil diunduh!');
   },
 
   // ── Export rekap Alpha bulanan (pivot): baris = nama santri, kolom =
@@ -11474,7 +11617,14 @@ const NFC = {
     }
 
     // Tandai hadir
-    await App.setSt(existing?.id||'', santri.id, 'hadir', this._sesiId);
+    S._nfcInFlight=true;
+    App._nfcInFlight=true;
+    try{
+      await App.setSt(existing?.id||absDetId(this._sesiId,santri.id), santri.id, 'hadir', this._sesiId);
+    }finally{
+      S._nfcInFlight=false;
+      App._nfcInFlight=false;
+    }
     SFX.success();
     this._showBigResult(santri, `\u2705 Hadir tercatat \u2022 ${santri.kamar}`);
   }
@@ -12147,14 +12297,18 @@ App.nav = async function(pg, opts={}) {
 
     let sx = await DB.g('sesi', sid);
     if (sx && sx.locked && S._adminMode !== true) {
-      SFX.error();
-      this._showFloatingBanner({
-        type:'locked', santri,
-        title:'Sesi Terkunci',
-        subtitle:(activity.kg.nama||'') + (activity.sub?' · '+activity.sub.nama:''),
-        icon:'🔒', color:'#ef4444'
-      });
-      return;
+      const lockedAbs=(await DB.ga('absensi')).find(a=>a.sesiId===sid&&a.sntId===santri.id);
+      if(lockedAbs&&lockedAbs.status!=='alpha'&&lockedAbs.status!=='none'){
+        SFX.error();
+        this._showFloatingBanner({
+          type:'locked', santri,
+          title:'Sesi Terkunci',
+          subtitle:(activity.kg.nama||'') + (activity.sub?' · '+activity.sub.nama:''),
+          icon:'🔒', color:'#ef4444'
+        });
+        return;
+      }
+      S._adminOverride = true;
     }
     // Admin override — set flag biar _doSt catat di audit log
     if (sx && sx.locked && S._adminMode === true) {
@@ -12185,7 +12339,7 @@ App.nav = async function(pg, opts={}) {
         else if(izinMap[sntId]){st='izin';pid=izinMap[sntId];oleh='Sistem (Perizinan)';}
         else if(isShalatNew&&uzurMapNew[sntId]){st='uzur';oleh='Sistem (Uzur)';}
         await DB.p('absensi', {
-          id:uid(), sesiId:sid, sntId,
+          id:absDetId(sid,sntId), sesiId:sid, sntId,
           status: st,
           perizinanId: pid,
           oleh,
@@ -12224,10 +12378,12 @@ App.nav = async function(pg, opts={}) {
     // ── CATATAN SAKIT INTEGRATION (NFC) ─────────────────────
     // Set flag agar _doSt tahu kalau berasal dari NFC, untuk menandai
     // catatanSakit aktif sebagai 'sembuh' (caraBerakhir='nfc').
+    S._nfcInFlight=true;
     App._nfcInFlight=true;
     try{
-      await App._doSt(existing?.id || '', santri.id, 'hadir', sid);
+      await App._doSt(existing?.id || absDetId(sid,santri.id), santri.id, 'hadir', sid);
     } finally {
+      S._nfcInFlight=false;
       App._nfcInFlight=false;
     }
     SFX.success();
@@ -12509,6 +12665,15 @@ const firebaseConfig = {
 const VAPID_KEY = "BOWn62C0_B6EUjAEF1DdJTVVpSnIfpLg9baKbKpebw8sC1vCn7GrQ0NoxsqLwkQADCS_xL7zj3xujDaz5wg7LYQ";
 
 if (!firebase.apps?.length) firebase.initializeApp(firebaseConfig);
+const _fbAuth = firebase.auth ? firebase.auth() : null;
+let _fbAuthReady = Promise.resolve(null);
+if (_fbAuth) {
+  _fbAuthReady = _fbAuth.signInAnonymously()
+    .catch(e => {
+      console.warn('[FirebaseAuth] Anonymous sign-in failed:', e.code || e.message);
+      return null;
+    });
+}
 const _fsDB = firebase.firestore();
 // ── BUG FIX (urutan init): settings() HARUS dipanggil SEBELUM operasi
 // Firestore apa pun, termasuk enablePersistence(). Sebelumnya settings()
@@ -12603,6 +12768,7 @@ async function _fsRetry(fn, label='fs', maxRetries=3) {
 // Wajib ada composite index untuk kombinasi where + orderBy yang dipakai.
 // Lihat firebase.json untuk daftar index yang sudah dibuat.
 async function _fbFetchFiltered(store, field1, op1, val1, field2, op2, val2, limit=500) {
+  await _fbAuthReady;
   let q = _tenantCol(store)
     .where(field1, op1, val1);
   if (field2 && op2 && val2 !== undefined) {
@@ -12628,6 +12794,7 @@ async function _fbFetchFiltered(store, field1, op1, val1, field2, op2, val2, lim
 // Mengembalikan { items, lastVisible } untuk pagination cursor-based.
 // Pakai startAfter(lastVisible) untuk halaman berikutnya.
 async function _fbFetchPaginated(store, orderByField='updatedAt', orderDir='desc', pageSize=50, lastVisible=null, filters=null) {
+  await _fbAuthReady;
   let q = _tenantCol(store).orderBy(orderByField, orderDir);
   if (filters && Array.isArray(filters)) {
     filters.forEach(f => { q = q.where(f.field, f.op, f.val); });
@@ -12649,6 +12816,7 @@ async function _fbFetchPaginated(store, orderByField='updatedAt', orderDir='desc
 }
 
 async function _fbFetch(path, method='GET', body=null) {
+  await _fbAuthReady;
   const parts = path.split('/').filter(Boolean); // ['store'] atau ['store','id']
   const store = parts[0], id = parts[1];
   if (method === 'GET') {
@@ -12698,6 +12866,7 @@ async function _fbFetch(path, method='GET', body=null) {
 // forensik jika terjadi dispute jam antar perangkat.
 const _AUDIT_TRAIL_STORES = new Set(['absensi','auditLog','pelanggaran','perizinan','catatanSakit','uzur']);
 async function _fbPatch(path, fields) {
+  await _fbAuthReady;
   const parts = path.split('/').filter(Boolean);
   const store = parts[0], id = parts[1];
   const cleaned = _fsClean(fields);
@@ -12717,6 +12886,7 @@ async function _fbPatch(path, fields) {
 // Daftar tenant ke koleksi registry (agar tidak bentrok antar asrama)
 async function _registerTenant(ns, namaAsrama, pin, tipe) {
   try {
+    await _fbAuthReady;
     await _fsDB.collection('registry').doc(ns).set({nama: namaAsrama, createdAt: Date.now(), pin: pin||null, tipe: tipe||'asrama'});
   } catch(e) { console.warn('[Registry] gagal register:', e); }
 }
@@ -13475,10 +13645,22 @@ const FBSync = (() => {
         // "nama pondok diubah di device A tidak berubah di device B".
         const fbTsRaw = fbObj.updatedAt || fbObj.createdAt || fbObj._ts || 0;
         delete fbObj._ts; delete fbObj._etag; delete fbObj._srvTs;
-        const loc = await DB.g(store, data.id).catch(()=>null);
-        const fbTs = fbTsRaw;
-        const locTs = loc ? (loc.updatedAt || loc.createdAt || loc._ts || 0) : 0;
-        if (!loc) {
+	        const loc = await DB.g(store, data.id).catch(()=>null);
+	        const fbTs = fbTsRaw;
+	        const locTs = loc ? (loc.updatedAt || loc.createdAt || loc._ts || 0) : 0;
+	        if (store === 'absensi' && loc) {
+	          const locAutoAlpha = loc.status === 'alpha' && String(loc.oleh||'').includes('Sistem (Auto');
+	          const fbHumanPresent = fbObj.status === 'hadir' || String(fbObj.oleh||'').includes('[NFC]');
+	          if (locAutoAlpha && fbHumanPresent) {
+	            await (_origP ? _origP(store, fbObj) : DB.p(store, fbObj));
+	            const allPel=await DB.ga('pelanggaran').catch(()=>[]);
+	            const pelAuto=allPel.find(p=>p.absId===fbObj.id&&p.tipe==='auto'&&p.status==='belum');
+	            if(pelAuto)await (_origD ? _origD('pelanggaran',pelAuto.id) : DB.d('pelanggaran',pelAuto.id));
+	            if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
+	            return;
+	          }
+	        }
+	        if (!loc) {
           // Item baru dari FB — simpan lokal
           await (_origP ? _origP(store, fbObj) : DB.p(store, fbObj));
           if (_isStoreRelevantToCurrentPage(store)) _scheduleReRender();
@@ -13825,7 +14007,8 @@ const FBSync = (() => {
     _dot('syncing');
     // ── H3 BUG FIX: Load persisted queue sebelum sync ──
     // Recover write yang tertinggal dari sesi sebelumnya (offline + reload)
-    _loadPersistedQueue().then(() => {
+    _loadPersistedQueue().then(async () => {
+      await _fbAuthReady;
       // Setelah load, coba flush segera (kalau ada yang pending)
       _flushWrites();
       // ── IMPROVED: start listeners INPARALLEL with pullAll ──

@@ -56,22 +56,28 @@ Yang masih perlu kamu lakukan di **Firebase Console** (project `myassalam-d45c5`
 - Mode: **Production mode** (rules diatur manual, lihat langkah 2)
 
 ### 2. Set Firestore Security Rules
-Tab **Rules**, isi (setara dengan rules terbuka RTDB versi lama — silakan
-diperketat sesuai kebutuhan, lihat section F):
+Aktifkan **Authentication > Sign-in method > Anonymous** lebih dulu, lalu deploy
+`firestore.rules` dari repo ini. Rules sekarang membutuhkan `request.auth != null`
+untuk data tenant agar database tidak terbuka publik.
 
 ```
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
+    match /tenants/{ns}/{store=**} {
+      allow read, write: if request.auth != null;
+    }
+    match /registry/{ns} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null;
     }
   }
 }
 ```
 
-**Catatan keamanan**: Rules di atas terbuka untuk siapa saja yang tahu URL
-project. Untuk produksi, ganti dengan rules yang lebih ketat (section F).
+**Catatan keamanan**: Auth anonymous adalah pengaman minimal. Untuk produksi
+yang lebih ketat, gunakan role/tenant claim atau Cloud Function untuk operasi
+super admin.
 
 ### 3. (Opsional) Buat index composite
 Aplikasi membaca seluruh isi collection per tenant (bukan query kompleks),

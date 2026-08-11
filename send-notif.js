@@ -47,6 +47,14 @@ module.exports = async (req, res) => {
     return;
   }
   try {
+    const requiredSecret = process.env.NOTIF_SHARED_SECRET;
+    if (requiredSecret) {
+      const sentSecret = req.headers['x-assalam-notif-key'] || req.headers['x-notif-key'];
+      if (sentSecret !== requiredSecret) {
+        res.status(401).json({ error: 'Unauthorized notification request' });
+        return;
+      }
+    }
     const { ns, title, body, target, sntId } = req.body || {};
     if (!ns || !title || !target) {
       res.status(400).json({ error: 'Missing ns/title/target' });

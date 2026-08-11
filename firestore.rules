@@ -1,55 +1,17 @@
-// ============================================================================
-// firestore.rules — AbsensiApp (myassalam-d45c5)
-// Multi-tenant: tenants/{ns}/{store}/{docId}
-// ============================================================================
-// AUDIT v3d FIX: "Missing or insufficient permissions" saat unggah data
-//
-// PENYEBAB: rules sebelumnya butuh `request.auth != null` — tapi aplikasi
-// TIDAK menggunakan Firebase Authentication. Saat pushAll/backup/restore
-// menulis ke Firestore, request ditolak karena auth=null.
-//
-// FIX: Untuk sementara, rules dibuka (allow if true) supaya aplikasi bisa
-// berfungsi. INI TIDAK AMAN untuk production — siapa pun yang tahu projectId
-// bisa baca/tulis data. Segera migrasi ke Firebase Auth (anon cukup untuk
-// starter) lalu ganti rules ke versi auth-gated di bawah.
-//
-// UPGRADE PATH (rekomendasi):
-//   1. Enable Firebase Anonymous Auth di Firebase Console
-//   2. Tambah `firebase.auth().signInAnonymously()` di boot code
-//   3. Ganti rules ke:
-//        allow read, write: if request.auth != null;
-//   4. (Opsional) Tambah Custom Claims (tenant_ns) untuk restrict per-tenant
-// ============================================================================
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── TENANT DATA ──────────────────────────────────────────────────────
-    // SEMUA data tenant dibuka (allow if true) supaya aplikasi bisa berfungsi
-    // tanpa Firebase Auth. TAMPAKAN INI TIDAK AMAN — lihat UPGRADE PATH di atas.
     match /tenants/{ns}/{store=**} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
-    // ── REGISTRY (daftar tenant global) ─────────────────────────────────
-    //   - READ: publik (dibutuhkan halaman "Pilih Pesantren" sebelum login)
-    //   - CREATE: publik (Setup Wizard mendaftarkan tenant baru)
-    //   - UPDATE/DELETE: publik untuk sementara (super admin masih gate UI).
-    //     Setelah migrasi Cloud Function, ganti ke: if false (hanya via Admin SDK)
     match /registry/{ns} {
       allow read: if true;
-      allow create: if true;
-      allow update, delete: if true; // TODO: pindahkan ke Cloud Function (Admin SDK)
+      allow create, update, delete: if request.auth != null;
     }
 
-    // ── FCM TOKENS (sub-collection tenants/{ns}/fcmTokens) ─────────────
-    match /tenants/{ns}/fcmTokens/{tokenDoc} {
-      allow read, write: if true;
-    }
-
-    // ── DEFAULT deny ───────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }
