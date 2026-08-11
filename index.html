@@ -3559,7 +3559,7 @@ const App={
     ]);
     const kgM=mapBy(kg,'id');const skM=mapBy(sk,'id');
     if(!sn){document.getElementById('profil-body').innerHTML='<div class="empty"><div class="es">Santri tidak ditemukan.</div></div>';return}
-    const sntAbs=absAll.filter(a=>a.sntId===sntId);
+    const sntAbs=absAll.filter(a=>a.sntId===sntId&&a.status&&a.status!=='none');
     const cnt={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
     sntAbs.forEach(a=>{if(cnt[a.status]!==undefined)cnt[a.status]++});
     const tot=sntAbs.length;const pct=tot?Math.round(cnt.hadir/tot*100):0;
@@ -3594,7 +3594,7 @@ const App={
     const selMonthPfx=`${S._profilRkYear}-${String(S._profilRkMonth+1).padStart(2,'0')}`;
     const sesSel=sesAll.filter(x=>x.tanggal.startsWith(selMonthPfx));
     const absSel=sntAbs.filter(a=>sesSel.find(x=>x.id===a.sesiId));
-    const cntSel={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
+    const cntSel={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
     absSel.forEach(a=>{if(cntSel[a.status]!==undefined)cntSel[a.status]++});
     const totSel=absSel.length;
     const pctSel=totSel?Math.round(cntSel.hadir/totSel*100):0;
@@ -3687,22 +3687,7 @@ const App={
       </div>`;
     }).join('');
 
-    // Riwayat
-    const histHtml=sntAbs.slice(-50).reverse().map(a=>{
-      const sx=sesAll.find(x=>x.id===a.sesiId);const k=sx?kgM[sx.kgId]:null;
-      const skItem=sx?.skId?skM[sx.skId]:null;
-      if(!sx)return'';
-      const delBtn=S._adminMode===true?`<button onclick="App._delAbsensi('${a.id}','${sntId}')" title="Hapus (Admin)" style="width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#ef4444;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>`:'';
-      return`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--dv)">
-        <div style="font-size:10px;color:var(--t3);width:70px;flex-shrink:0">${sx.tanggal.slice(5)}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;font-weight:600;color:var(--t1)">${k?.icon||''} ${k?.nama||'-'}</div>
-          ${skItem?`<div style="font-size:9px;color:var(--t4)">${skItem.nama}</div>`:''}
-        </div>
-        <span class="bd ${bdgCls(a.status)}">${a.status}</span>
-        ${delBtn}
-      </div>`;
-    }).join('');
+    const histHtml='';
 
     // Per-kegiatan stats
     const kgAktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
@@ -3710,7 +3695,7 @@ const App={
       const kgSes=sesAll.filter(x=>x.kgId===k.id);
       const kgAbs=sntAbs.filter(a=>kgSes.find(x=>x.id===a.sesiId));
       if(!kgAbs.length)return'';
-      const kc={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
+      const kc={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
       kgAbs.forEach(a=>{if(kc[a.status]!==undefined)kc[a.status]++});
       const kp=kgAbs.length?Math.round(kc.hadir/kgAbs.length*100):0;
       // Sub kegiatan stats
@@ -3719,7 +3704,7 @@ const App={
         const sSes=sesAll.filter(x=>x.skId===s.id);
         const sAbs=sntAbs.filter(a=>sSes.find(x=>x.id===a.sesiId));
         if(!sAbs.length)return'';
-        const sc={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
+        const sc={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
         sAbs.forEach(a=>{if(sc[a.status]!==undefined)sc[a.status]++});
         const sp=sAbs.length?Math.round(sc.hadir/sAbs.length*100):0;
         return`<div style="padding:8px 10px;background:rgba(13,181,127,.03);border-top:1px solid var(--dv)">
@@ -3900,9 +3885,7 @@ const App={
           <!-- Per kegiatan -->
           <div style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--t1);margin-bottom:8px">Per Kegiatan</div>
           ${kgStatsHtml||'<div style="font-size:12px;color:var(--t3)">Belum ada data kegiatan.</div>'}
-          <!-- Riwayat Absensi (digabung ke rekap) -->
-          <div style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--t1);margin:14px 0 8px">Riwayat Absensi (50 terakhir)</div>
-          ${histHtml||'<div class="empty" style="padding:20px 0"><div class="es">Belum ada riwayat.</div></div>'}
+          <div style="font-size:10px;color:var(--t3);margin-top:10px">Riwayat absensi detail tidak ditampilkan di profil. Data diringkas per kegiatan/sub-kegiatan agar laporan lebih padat.</div>
         </div>
 
         <!-- TAB: IZIN -->
@@ -4569,7 +4552,7 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
     allSes.forEach(sx=>{if(!kgGroups[sx.kgId])kgGroups[sx.kgId]=[];kgGroups[sx.kgId].push(sx)});
 
     // Overall stats
-    const allAbs=absAll.filter(a=>allSes.find(x=>x.id===a.sesiId));
+    const allAbs=absAll.filter(a=>a.status&&a.status!=='none'&&allSes.find(x=>x.id===a.sesiId));
     const dayC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
     allAbs.forEach(a=>{if(dayC[a.status]!==undefined)dayC[a.status]++});
     const dayTot=allAbs.length,dayPct=dayTot?Math.round(dayC.hadir/dayTot*100):0;
@@ -4648,7 +4631,7 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
       let subHtml='';
       for(const sx of subSxs){
         const skItem=skM[sx.skId];
-        const sa=absAll.filter(a=>a.sesiId===sx.id);
+        const sa=absAll.filter(a=>a.status&&a.status!=='none'&&a.sesiId===sx.id);
         const hh=sa.filter(a=>a.status==='hadir').length;
         const sp=sa.length?Math.round(hh/sa.length*100):0;
         subHtml+=`<div style="background:var(--gs);border-radius:var(--r2);padding:9px;margin-bottom:5px">
@@ -4680,15 +4663,49 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
   async rkSelDate(d){S.rkDate=d;await this._rkHarian()},
   async rkSelKg(id){S.rkKgId=id;await this._rkHarian()},
 
+  _rkStatusGrid(counts,scope,id){
+    const statuses=[
+      ['hadir','Hadir','var(--a1)'],['alpha','Alpha','#ef4444'],['izin','Izin','#f59e0b'],
+      ['sakit','Sakit','#8b5cf6'],['terlambat','Terlambat','#06b6d4'],['uzur','Uzur','var(--cu)']
+    ];
+    return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">${statuses.map(([st,lb,col])=>`
+      <button onclick="App._rkBulananStatusPop('${st}','${scope}','${id}')" style="background:var(--gs);border:1px solid var(--dv);border-radius:var(--r1);padding:6px 2px;text-align:center;cursor:pointer">
+        <div style="font-weight:800;font-size:13px;color:${col}">${counts[st]||0}</div>
+        <div style="font-size:7px;color:var(--t3)">${lb}</div>
+      </button>`).join('')}</div>`;
+  },
+
+  async _rkBulananStatusPop(status,scope,id){
+    const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
+    const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    const [sesAll,absAll,snt,kg,sk]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg')]);
+    const sntM=mapBy(snt,'id'),kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
+    const monSes=sesAll.filter(x=>x.tanggal&&x.tanggal.startsWith(monthPfx)).filter(x=>scope==='all'?true:(scope==='kg'?x.kgId===id:x.skId===id));
+    const sesIds=new Set(monSes.map(x=>x.id));
+    const counts={};
+    absAll.filter(a=>a.status===status&&sesIds.has(a.sesiId)).forEach(a=>{counts[a.sntId]=(counts[a.sntId]||0)+1});
+    const rows=Object.entries(counts).map(([sntId,n])=>({s:sntM[sntId],n})).filter(x=>x.s).sort((a,b)=>b.n-a.n||a.s.nama.localeCompare(b.s.nama,'id'));
+    const label={hadir:'Hadir',alpha:'Alpha',izin:'Izin',sakit:'Sakit',terlambat:'Terlambat',uzur:'Uzur'}[status]||status;
+    const title=scope==='kg'?(kgM[id]?.nama||'-'):(skM[id]?.nama||'-');
+    OS(`<div class="sh">${esc(label)} - ${esc(title)}</div><div class="sb" style="padding-bottom:30px">
+      <div style="font-size:11px;color:var(--t3);margin-bottom:10px">${months[S.rkMonth]} ${S.rkYear}. Diurutkan dari jumlah terbanyak.</div>
+      ${rows.length?rows.map((r,i)=>`<div style="display:flex;align-items:center;gap:9px;padding:9px;background:var(--su);border:1px solid var(--sub);border-radius:var(--r2);margin-bottom:6px;cursor:pointer" onclick="CS();App.nav('profil',{id:'${r.s.id}',t:'${escJ(r.s.nama)}'})">
+        <div style="width:24px;height:24px;border-radius:50%;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">${i+1}</div>
+        <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.s.nama)}</div><div style="font-size:10px;color:var(--t3)">Kamar ${esc(r.s.kamar||'-')}</div></div>
+        <div style="font-family:var(--fd);font-size:18px;font-weight:900;color:var(--a1)">${r.n}</div>
+      </div>`).join(''):'<div class="empty"><div class="es">Tidak ada santri pada status ini.</div></div>'}
+    </div>`);
+  },
+
   async _rkBulanan(){
     const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg')]);
     const aktif=kg.filter(x=>x.aktif).sort((a,b)=>a.urutan-b.urutan);
     const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
     const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
     const monSes=sesAll.filter(x=>x.tanggal.startsWith(monthPfx));
-    const monAbs=absAll.filter(a=>monSes.find(x=>x.id===a.sesiId));
+    const monAbs=absAll.filter(a=>a.status!=='none'&&monSes.find(x=>x.id===a.sesiId));
     const sntM=mapBy(snt,'id'),skM=mapBy(sk,'id');
-    const totC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
+    const totC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
     monAbs.forEach(a=>{if(totC[a.status]!==undefined)totC[a.status]++});
     const totTot=monAbs.length,totPct=totTot?Math.round(totC.hadir/totTot*100):0;
     // Weekly chart (4 weeks)
@@ -4714,9 +4731,7 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
           </div>
           <div style="font-family:var(--fd);font-size:15px;font-weight:900;color:var(--a1)">${totPct}%</div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:10px">
-          ${Object.entries(totC).map(([st,n])=>`<div style="background:var(--gs);border-radius:var(--r2);padding:7px 2px;text-align:center"><div style="font-family:var(--fd);font-size:15px;font-weight:800;color:var(--t1)">${n}</div><div style="font-size:8px;color:var(--t3)">${st}</div></div>`).join('')}
-        </div>
+        ${this._rkStatusGrid(totC,'all','all')}
         <div style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;margin-bottom:6px">Grafik per Minggu</div>
         <div class="bar-chart" style="height:72px;margin-bottom:10px">${barHtml}</div>
         <div class="pw" style="margin-bottom:4px"><div class="pf" style="width:${totPct}%"></div></div>
@@ -4729,7 +4744,7 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
       const kSes=monSes.filter(x=>x.kgId===k.id);
       const kAbs=monAbs.filter(a=>kSes.find(x=>x.id===a.sesiId));
       if(!kAbs.length)return;
-      const kC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
+      const kC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
       kAbs.forEach(a=>{if(kC[a.status]!==undefined)kC[a.status]++});
       const kPct=kAbs.length?Math.round(kC.hadir/kAbs.length*100):0;
       // Sub kegiatan
@@ -4738,11 +4753,16 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
         const sSes=kSes.filter(x=>x.skId===s.id);
         const sAbs=monAbs.filter(a=>sSes.find(x=>x.id===a.sesiId));
         if(!sAbs.length)return'';
-        const sC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};sAbs.forEach(a=>{if(sC[a.status]!==undefined)sC[a.status]++});
+        const sC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};sAbs.forEach(a=>{if(sC[a.status]!==undefined)sC[a.status]++});
         const sP=sAbs.length?Math.round(sC.hadir/sAbs.length*100):0;
         return`<div style="padding:8px;background:var(--gs);border-radius:var(--r2);margin-bottom:5px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px"><div style="font-size:11px;font-weight:700;color:var(--t2)">🔹 ${s.nama}</div><div style="font-size:10px;font-weight:700;color:var(--a1)">${sP}%</div></div>
-          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px">${Object.entries(sC).map(([st,n])=>`<div style="text-align:center;background:var(--su);border-radius:var(--r1);padding:4px 2px"><div style="font-weight:800;font-size:11px;color:var(--t1)">${n}</div><div style="font-size:7px;color:var(--t4)">${st}</div></div>`).join('')}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-size:11px;font-weight:700;color:var(--t2)">🔹 ${s.nama}</div><div style="font-size:10px;font-weight:700;color:var(--a1)">${sP}%</div></div>
+          ${this._rkStatusGrid(sC,'sk',s.id)}
+          <div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap">
+            <button onclick="Exp.exportRekapScopeBulanan(S.rkYear,S.rkMonth,'sk','${s.id}','excel')" style="flex:1;padding:7px;border-radius:var(--r1);border:1px solid rgba(22,163,74,.22);background:rgba(22,163,74,.07);font-size:10px;font-weight:700;color:#16a34a">Excel</button>
+            <button onclick="Exp.exportRekapScopeBulanan(S.rkYear,S.rkMonth,'sk','${s.id}','word')" style="flex:1;padding:7px;border-radius:var(--r1);border:1px solid rgba(37,99,235,.22);background:rgba(37,99,235,.07);font-size:10px;font-weight:700;color:#2563eb">Word</button>
+            <button onclick="Exp.exportRekapScopeBulanan(S.rkYear,S.rkMonth,'sk','${s.id}','pdf')" style="flex:1;padding:7px;border-radius:var(--r1);border:1px solid rgba(220,38,38,.22);background:rgba(220,38,38,.07);font-size:10px;font-weight:700;color:#dc2626">PDF</button>
+          </div>
         </div>`;
       }).join('');
       html+=`<div style="background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:12px;margin-bottom:8px;backdrop-filter:blur(20px)">
@@ -4751,8 +4771,13 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
           <div style="flex:1"><div style="font-weight:700;font-size:13px;color:var(--t1)">${k.nama}</div><div style="font-size:10px;color:var(--t3)">${kSes.length} sesi</div></div>
           <div style="font-family:var(--fd);font-size:15px;font-weight:900;color:var(--a1)">${kPct}%</div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:${subHtml2?'9':'0'}px">
-          ${Object.entries(kC).map(([st,n])=>`<div style="background:var(--gs);border-radius:var(--r1);padding:5px 2px;text-align:center"><div style="font-weight:800;font-size:13px;color:var(--t1)">${n}</div><div style="font-size:7px;color:var(--t3)">${st}</div></div>`).join('')}
+        <div style="margin-bottom:${subHtml2?'9':'0'}px">
+          ${this._rkStatusGrid(kC,'kg',k.id)}
+          <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
+            <button onclick="Exp.exportRekapScopeBulanan(S.rkYear,S.rkMonth,'kg','${k.id}','excel')" style="flex:1;padding:8px;border-radius:var(--r2);border:1px solid rgba(22,163,74,.22);background:rgba(22,163,74,.07);font-size:10px;font-weight:700;color:#16a34a">Excel</button>
+            <button onclick="Exp.exportRekapScopeBulanan(S.rkYear,S.rkMonth,'kg','${k.id}','word')" style="flex:1;padding:8px;border-radius:var(--r2);border:1px solid rgba(37,99,235,.22);background:rgba(37,99,235,.07);font-size:10px;font-weight:700;color:#2563eb">Word</button>
+            <button onclick="Exp.exportRekapScopeBulanan(S.rkYear,S.rkMonth,'kg','${k.id}','pdf')" style="flex:1;padding:8px;border-radius:var(--r2);border:1px solid rgba(220,38,38,.22);background:rgba(220,38,38,.07);font-size:10px;font-weight:700;color:#dc2626">PDF</button>
+          </div>
         </div>
         ${subHtml2}
       </div>`;
@@ -4765,7 +4790,7 @@ const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi
 const kgM=mapBy(kg,'id'),sntM=mapBy(snt,'id'),skM=mapBy(sk,'id');
 const allSes=sesAll.filter(x=>x.tanggal===S.rkDate);
 const kgGroups={};allSes.forEach(sx=>{if(!kgGroups[sx.kgId])kgGroups[sx.kgId]=[];kgGroups[sx.kgId].push(sx)});
-const allAbs=absAll.filter(a=>allSes.find(x=>x.id===a.sesiId));
+const allAbs=absAll.filter(a=>a.status&&a.status!=='none'&&allSes.find(x=>x.id===a.sesiId));
 const dayC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
 allAbs.forEach(a=>{if(dayC[a.status]!==undefined)dayC[a.status]++});
 const tot=allAbs.length,pct=tot?Math.round(dayC.hadir/tot*100):0;
@@ -4792,7 +4817,7 @@ sxs.forEach(sx=>{
 const skItem=sx.skId?skM[sx.skId]:null;
 if(skItem)t+=`${skItem.nama}
 `;
-const sa=absAll.filter(a=>a.sesiId===sx.id);
+const sa=absAll.filter(a=>a.status&&a.status!=='none'&&a.sesiId===sx.id);
 const sc={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};sa.forEach(a=>{if(sc[a.status]!==undefined)sc[a.status]++});
 t+=`Hadir ${sc.hadir} | Alpha ${sc.alpha} | Izin ${sc.izin} | Sakit ${sc.sakit} | Terlambat ${sc.terlambat}
 `;
@@ -4815,7 +4840,7 @@ const kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
 const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
 const monSes=sesAll.filter(x=>x.tanggal.startsWith(monthPfx));
-const monAbs=absAll.filter(a=>monSes.find(x=>x.id===a.sesiId));
+const monAbs=absAll.filter(a=>a.status&&a.status!=='none'&&monSes.find(x=>x.id===a.sesiId));
 const totC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
 monAbs.forEach(a=>{if(totC[a.status]!==undefined)totC[a.status]++});
 const tot=monAbs.length,pct=tot?Math.round(totC.hadir/tot*100):0;
@@ -5326,6 +5351,9 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
           <span style="font-size:20px">💬</span>
           <div><div style="font-size:13px;font-weight:700;color:#25d366">Laporan Harian via WhatsApp</div><div style="font-size:10px;color:var(--t3)">Kirim rekap harian ke WhatsApp</div></div>
         </button>
+        <button onclick="CS();Exp.exportPelanggaran('harian','excel')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(22,163,74,.07);border:1.5px solid rgba(22,163,74,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📗</span><div><div style="font-size:13px;font-weight:700;color:#16a34a">Export Harian Excel</div><div style="font-size:10px;color:var(--t3)">Laporan pelanggaran hari ini</div></div></button>
+        <button onclick="CS();Exp.exportPelanggaran('harian','word')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(37,99,235,.07);border:1.5px solid rgba(37,99,235,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📘</span><div><div style="font-size:13px;font-weight:700;color:#2563eb">Export Harian Word</div><div style="font-size:10px;color:var(--t3)">Dokumen siap edit</div></div></button>
+        <button onclick="CS();Exp.exportPelanggaran('harian','pdf')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(220,38,38,.07);border:1.5px solid rgba(220,38,38,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📕</span><div><div style="font-size:13px;font-weight:700;color:#dc2626">Export Harian PDF</div><div style="font-size:10px;color:var(--t3)">Laporan siap cetak</div></div></button>
         <div style="height:1px;background:var(--dv);margin:2px 0"></div>
         <button onclick="CS();App._salinPelBulanan()" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:var(--gs);border:1.5px solid var(--dv);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
           <span style="font-size:20px">📋</span>
@@ -5335,6 +5363,9 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
           <span style="font-size:20px">💬</span>
           <div><div style="font-size:13px;font-weight:700;color:#25d366">Laporan Bulanan via WhatsApp</div><div style="font-size:10px;color:var(--t3)">Kirim rekap bulanan ke WhatsApp</div></div>
         </button>
+        <button onclick="CS();Exp.exportPelanggaran('bulanan','excel')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(22,163,74,.07);border:1.5px solid rgba(22,163,74,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📗</span><div><div style="font-size:13px;font-weight:700;color:#16a34a">Export Bulanan Excel</div><div style="font-size:10px;color:var(--t3)">Laporan pelanggaran bulan ini</div></div></button>
+        <button onclick="CS();Exp.exportPelanggaran('bulanan','word')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(37,99,235,.07);border:1.5px solid rgba(37,99,235,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📘</span><div><div style="font-size:13px;font-weight:700;color:#2563eb">Export Bulanan Word</div><div style="font-size:10px;color:var(--t3)">Dokumen siap edit</div></div></button>
+        <button onclick="CS();Exp.exportPelanggaran('bulanan','pdf')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(220,38,38,.07);border:1.5px solid rgba(220,38,38,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📕</span><div><div style="font-size:13px;font-weight:700;color:#dc2626">Export Bulanan PDF</div><div style="font-size:10px;color:var(--t3)">Laporan siap cetak</div></div></button>
       </div>
     </div>`);
   },
@@ -5384,7 +5415,7 @@ catch{OS('<div class="sh">Rekap Pelanggaran Bulanan</div><div class="sb"><textar
 const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg')]);
 const kgM=mapBy(kg,'id'),sntM=mapBy(snt,'id'),skM=mapBy(sk,'id');
 const allSes=sesAll.filter(x=>x.tanggal===S.rkDate);
-const allAbs=absAll.filter(a=>allSes.find(x=>x.id===a.sesiId));
+const allAbs=absAll.filter(a=>a.status&&a.status!=='none'&&allSes.find(x=>x.id===a.sesiId));
 const kgGroups={};
 allSes.forEach(sx=>{if(!kgGroups[sx.kgId])kgGroups[sx.kgId]=[];kgGroups[sx.kgId].push(sx);});
 const dayC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
@@ -5401,7 +5432,7 @@ t+=(k?.icon||'\uD83D\uDCCB')+' *'+(k?.nama||'-')+'*\n';
 sxs.forEach(sx=>{
 const skItem=sx.skId?skM[sx.skId]:null;
 if(skItem)t+='\uD83D\uDD39 '+skItem.nama+'\n';
-const sa=absAll.filter(a=>a.sesiId===sx.id);
+const sa=absAll.filter(a=>a.status&&a.status!=='none'&&a.sesiId===sx.id);
 const sc={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
 sa.forEach(a=>{if(sc[a.status]!==undefined)sc[a.status]++;});
 t+='Hadir '+sc.hadir+' | Alpha '+sc.alpha+' | Izin '+sc.izin+'\n';
@@ -5423,7 +5454,7 @@ const monthPfx=S.rkYear+'-'+String(S.rkMonth+1).padStart(2,'0');
 const [kg,sesAll,absAll,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('subKeg')]);
 const kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
 const monSes=sesAll.filter(x=>x.tanggal.startsWith(monthPfx));
-const monAbs=absAll.filter(a=>monSes.find(x=>x.id===a.sesiId));
+const monAbs=absAll.filter(a=>a.status&&a.status!=='none'&&monSes.find(x=>x.id===a.sesiId));
 const totC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
 monAbs.forEach(a=>{if(totC[a.status]!==undefined)totC[a.status]++;});
 const tot=monAbs.length,pct=tot?Math.round(totC.hadir/tot*100):0;
@@ -5464,6 +5495,9 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
           <span style="font-size:20px">📊</span>
           <div><div style="font-size:13px;font-weight:700;color:var(--t1)">Export CSV</div><div style="font-size:10px;color:var(--t3)">Download data sebagai spreadsheet</div></div>
         </button>
+        ${isH?`<button onclick="CS();Exp.exportRekapHarian(S.rkDate,'excel')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(22,163,74,.07);border:1.5px solid rgba(22,163,74,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📗</span><div><div style="font-size:13px;font-weight:700;color:#16a34a">Export Rekap Harian Excel</div><div style="font-size:10px;color:var(--t3)">Rekap harian semua kegiatan</div></div></button>
+        <button onclick="CS();Exp.exportRekapHarian(S.rkDate,'word')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(37,99,235,.07);border:1.5px solid rgba(37,99,235,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📘</span><div><div style="font-size:13px;font-weight:700;color:#2563eb">Export Rekap Harian Word</div><div style="font-size:10px;color:var(--t3)">Dokumen siap edit</div></div></button>
+        <button onclick="CS();Exp.exportRekapHarian(S.rkDate,'pdf')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(220,38,38,.07);border:1.5px solid rgba(220,38,38,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left"><span style="font-size:20px">📕</span><div><div style="font-size:13px;font-weight:700;color:#dc2626">Export Rekap Harian PDF</div><div style="font-size:10px;color:var(--t3)">Laporan siap cetak</div></div></button>`:''}
         ${!isH?`<button onclick="CS();Exp.exportAlphaBulanan(S.rkYear,S.rkMonth)" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(239,68,68,.07);border:1.5px solid rgba(239,68,68,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
           <span style="font-size:20px">❌</span>
           <div><div style="font-size:13px;font-weight:700;color:#ef4444">Export Rekap Alpha (Excel)</div><div style="font-size:10px;color:var(--t3)">Pivot: nama santri × sub kegiatan, khusus Alpha bulan ini</div></div>
@@ -5471,6 +5505,10 @@ window.open('https://api.whatsapp.com/send?text='+encodeURIComponent(t),'_blank'
         <button onclick="CS();Exp.exportRekapKegiatanBulanan(S.rkYear,S.rkMonth,'excel')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(22,163,74,.07);border:1.5px solid rgba(22,163,74,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
           <span style="font-size:20px">📗</span>
           <div><div style="font-size:13px;font-weight:700;color:#16a34a">Export Bulanan Kegiatan (Excel)</div><div style="font-size:10px;color:var(--t3)">Rekap setiap kegiatan dan sub-kegiatan pada bulan dipilih</div></div>
+        </button>
+        <button onclick="CS();Exp.exportRekapKegiatanBulanan(S.rkYear,S.rkMonth,'word')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(37,99,235,.07);border:1.5px solid rgba(37,99,235,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
+          <span style="font-size:20px">📘</span>
+          <div><div style="font-size:13px;font-weight:700;color:#2563eb">Export Bulanan Kegiatan (Word)</div><div style="font-size:10px;color:var(--t3)">Dokumen siap edit</div></div>
         </button>
         <button onclick="CS();Exp.exportRekapKegiatanBulanan(S.rkYear,S.rkMonth,'pdf')" style="width:100%;padding:13px 15px;border-radius:var(--r3);background:rgba(220,38,38,.07);border:1.5px solid rgba(220,38,38,.22);display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left">
           <span style="font-size:20px">📕</span>
@@ -9298,10 +9336,10 @@ let periodeLabel,sa;
 if(mode==='harian'){
 const today=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 periodeLabel=`Harian: ${today}`;
-sa=absAll.filter(a=>a.sntId===sntId&&sesM[a.sesiId]?.tanggal===today);
+	sa=absAll.filter(a=>a.sntId===sntId&&a.status&&a.status!=='none'&&sesM[a.sesiId]?.tanggal===today);
 }else{
 periodeLabel='Bulanan: dikelompokkan per bulan';
-sa=absAll.filter(a=>a.sntId===sntId&&sesM[a.sesiId]);
+	sa=absAll.filter(a=>a.sntId===sntId&&a.status&&a.status!=='none'&&sesM[a.sesiId]);
 }
 const cnt={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
 sa.forEach(a=>{if(cnt[a.status]!==undefined)cnt[a.status]++});
@@ -9399,7 +9437,7 @@ await this._share(t);
     const kgM=mapBy(kg,'id'),sntM=mapBy(snt,'id'),skM=mapBy(sk,'id');
     const sl=ses.filter(x=>(!date||x.tanggal===date)&&(!kgId||x.kgId===kgId));
     const rows=[['Tanggal','Kegiatan','Sub Kegiatan','Nama','Kamar','Status','Pengabsen']];
-    for(const sx of sl){const k=kgM[sx.kgId]||{};const skNm=sx.skId?(skM[sx.skId]?.nama||'-'):'-';const al=abs.filter(a=>a.sesiId===sx.id);for(const a of al){const s=sntM[a.sntId]||{};rows.push([sx.tanggal,k.nama||'-',skNm,s.nama||'-',s.kamar||'-',a.status,a.oleh||'-'])}}
+    for(const sx of sl){const k=kgM[sx.kgId]||{};const skNm=sx.skId?(skM[sx.skId]?.nama||'-'):'-';const al=abs.filter(a=>a.status&&a.status!=='none'&&a.sesiId===sx.id);for(const a of al){const s=sntM[a.sntId]||{};rows.push([sx.tanggal,k.nama||'-',skNm,s.nama||'-',s.kamar||'-',a.status,a.oleh||'-'])}}
     const csv=rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
     const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`absensi-${date||'all'}.csv`;a.click();URL.revokeObjectURL(url);T('\u2705 CSV diunduh!');
@@ -9698,34 +9736,44 @@ th{background:#e8f7f1}
     URL.revokeObjectURL(url);
   },
 
-  // ── Export lengkap satu santri: identitas + seluruh riwayat/catatan/
-  // perizinan/catatan sakit/pelanggaran — ke Word, Excel, atau PDF ──────
   async exportSntFull(sntId, format){
-    T('\u23F3 Menyiapkan data export...');
-    const [sn,absAll,sesAll,kg,sk,catatan,perAll,sakitAll,pelAll]=await Promise.all([
+	    T('\u23F3 Menyiapkan data export...');
+	    const [sn,absAll,sesAll,kg,sk,catatan,perAll,sakitAll,pelAll]=await Promise.all([
       DB.g('santri',sntId),DB.ga('absensi'),DB.ga('sesi'),DB.ga('kegiatan'),DB.ga('subKeg'),
       DB.ga('catatanSantri'),DB.ga('perizinan'),DB.ga('catatanSakit'),DB.ga('pelanggaran')
-    ]);
-    if(!sn){T('\u274C Santri tidak ditemukan');return;}
-    const kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
-    const absList=absAll.filter(a=>a.sntId===sntId).map(a=>{
-      const sx=sesAll.find(x=>x.id===a.sesiId);
-      return{tanggal:sx?.tanggal||'-',kegiatan:sx?(kgM[sx.kgId]?.nama||'-'):'-',sub:sx?.skId?(skM[sx.skId]?.nama||'-'):'-',status:a.status,oleh:a.oleh||'-'};
-    }).sort((a,b)=>b.tanggal.localeCompare(a.tanggal));
-    const catList=catatan.filter(c=>c.sntId===sntId).sort((a,b)=>b.createdAt-a.createdAt);
-    const perList=perAll.filter(p=>p.sntId===sntId).sort((a,b)=>b.createdAt-a.createdAt);
-    const sakitList=sakitAll.filter(s=>s.sntId===sntId).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-    const pelList=pelAll.filter(p=>p.sntId===sntId).sort((a,b)=>b.createdAt-a.createdAt);
-    const cnt={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0};
-    absList.forEach(a=>{if(cnt[a.status]!==undefined)cnt[a.status]++});
-    const tot=absList.length; const pct=tot?Math.round(cnt.hadir/tot*100):0;
-    const fname=(sn.nama||'santri').replace(/[^a-z0-9]+/gi,'_');
-    if(format==='pdf') return this._exportSntPdf(sn,absList,catList,perList,sakitList,pelList,cnt,tot,pct,fname);
-    if(format==='word') return this._exportSntWord(sn,absList,catList,perList,sakitList,pelList,cnt,tot,pct,fname);
-    if(format==='excel') return this._exportSntExcel(sn,absList,catList,perList,sakitList,pelList,cnt,tot,pct,fname);
+	    ]);
+	    if(!sn){T('\u274C Santri tidak ditemukan');return;}
+	    const summary=this._buildSntMonthlySummary(sntId,absAll,sesAll,kg,sk);
+	    const catList=catatan.filter(c=>c.sntId===sntId).sort((a,b)=>b.createdAt-a.createdAt);
+	    const perList=perAll.filter(p=>p.sntId===sntId).sort((a,b)=>b.createdAt-a.createdAt);
+	    const sakitList=sakitAll.filter(s=>s.sntId===sntId).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+	    const pelList=pelAll.filter(p=>p.sntId===sntId).sort((a,b)=>b.createdAt-a.createdAt);
+	    const cnt={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
+	    summary.rows.forEach(r=>{Object.keys(cnt).forEach(st=>cnt[st]+=r[st]||0)});
+	    const tot=summary.rows.reduce((n,r)=>n+(r.total||0),0); const pct=tot?Math.round(cnt.hadir/tot*100):0;
+	    const fname=(sn.nama||'santri').replace(/[^a-z0-9]+/gi,'_');
+	    if(format==='pdf') return this._exportSntPdf(sn,summary,catList,perList,sakitList,pelList,cnt,tot,pct,fname);
+	    if(format==='word') return this._exportSntWord(sn,summary,catList,perList,sakitList,pelList,cnt,tot,pct,fname);
+	    if(format==='excel') return this._exportSntExcel(sn,summary,catList,perList,sakitList,pelList,cnt,tot,pct,fname);
+	  },
+
+  _buildSntMonthlySummary(sntId,absAll,sesAll,kg,sk){
+    const kgM=mapBy(kg,'id'),skM=mapBy(sk,'id'),sesM=mapBy(sesAll,'id');
+    const rowsMap=new Map();
+    absAll.filter(a=>a.sntId===sntId&&a.status&&a.status!=='none').forEach(a=>{
+      const sx=sesM[a.sesiId];if(!sx?.tanggal)return;
+      const month=sx.tanggal.slice(0,7);
+      const label=(kgM[sx.kgId]?.nama||'-')+(sx.skId?' - '+(skM[sx.skId]?.nama||'-'):'');
+      const key=month+'|'+label;
+      if(!rowsMap.has(key))rowsMap.set(key,{month,label,hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0,total:0});
+      const r=rowsMap.get(key);
+      if(r[a.status]!==undefined){r[a.status]++;r.total++;}
+    });
+    const rows=[...rowsMap.values()].sort((a,b)=>b.month.localeCompare(a.month)||a.label.localeCompare(b.label,'id'));
+    return {rows};
   },
 
-  _exportSntWord(sn,absList,catList,perList,sakitList,pelList,cnt,tot,pct,fname){
+  _exportSntWord(sn,summary,catList,perList,sakitList,pelList,cnt,tot,pct,fname){
     const e2=s=>esc(s);
     const h=`<h1>Laporan Lengkap Santri</h1>
 <h2 style="margin-top:0;border:none">${e2(sn.nama)}${sn.panggilan?' ("'+e2(sn.panggilan)+'")':''}</h2>
@@ -9740,12 +9788,12 @@ th{background:#e8f7f1}
 </table>
 <h2>Ringkasan Kehadiran</h2>
 <table>
-  <tr><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Total Sesi</th><th>% Hadir</th></tr>
-  <tr><td>${cnt.hadir}</td><td>${cnt.alpha}</td><td>${cnt.izin}</td><td>${cnt.sakit}</td><td>${cnt.terlambat}</td><td>${tot}</td><td>${pct}%</td></tr>
+	  <tr><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Uzur</th><th>Total Sesi</th><th>% Hadir</th></tr>
+	  <tr><td>${cnt.hadir}</td><td>${cnt.alpha}</td><td>${cnt.izin}</td><td>${cnt.sakit}</td><td>${cnt.terlambat}</td><td>${cnt.uzur}</td><td>${tot}</td><td>${pct}%</td></tr>
 </table>
-<h2>Riwayat Absensi (${absList.length})</h2>
-<table><tr><th>Tanggal</th><th>Kegiatan</th><th>Sub Kegiatan</th><th>Status</th><th>Oleh</th></tr>
-${absList.map(a=>`<tr><td>${a.tanggal}</td><td>${e2(a.kegiatan)}</td><td>${e2(a.sub)}</td><td>${a.status}</td><td>${e2(a.oleh)}</td></tr>`).join('')||'<tr><td colspan="5">Tidak ada data</td></tr>'}
+	<h2>Rekap Absensi Per Bulan dan Kegiatan</h2>
+	<table><tr><th>Bulan</th><th>Kegiatan/Sub-kegiatan</th><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Uzur</th><th>Total</th></tr>
+	${summary.rows.map(a=>`<tr><td>${a.month}</td><td>${e2(a.label)}</td><td>${a.hadir}</td><td>${a.alpha}</td><td>${a.izin}</td><td>${a.sakit}</td><td>${a.terlambat}</td><td>${a.uzur}</td><td>${a.total}</td></tr>`).join('')||'<tr><td colspan="9">Tidak ada data</td></tr>'}
 </table>
 <h2>Catatan Prestasi/Pelanggaran/Umum (${catList.length})</h2>
 <table><tr><th>Tanggal</th><th>Tipe</th><th>Isi</th></tr>
@@ -9768,7 +9816,7 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
     T('\u2705 Word berhasil diunduh!');
   },
 
-  _exportSntExcel(sn,absList,catList,perList,sakitList,pelList,cnt,tot,pct,fname){
+  _exportSntExcel(sn,summary,catList,perList,sakitList,pelList,cnt,tot,pct,fname){
     const e2=s=>esc(s);
     const h=`<table>
 <tr><td colspan="7" style="font-weight:bold;font-size:14pt">Laporan Santri: ${e2(sn.nama)}</td></tr>
@@ -9776,12 +9824,12 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
 <tr><td>Status</td><td>${e2(sn.status||'Aktif')}</td><td>Wali</td><td>${e2(sn.waliNama||'-')}</td><td>WA Wali</td><td colspan="2">${e2(sn.waliWA||'-')}</td></tr>
 <tr><td></td></tr>
 <tr><td colspan="7" style="font-weight:bold;background:#d4f7e8">RINGKASAN KEHADIRAN</td></tr>
-<tr><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Total</th><th>% Hadir</th></tr>
-<tr><td>${cnt.hadir}</td><td>${cnt.alpha}</td><td>${cnt.izin}</td><td>${cnt.sakit}</td><td>${cnt.terlambat}</td><td>${tot}</td><td>${pct}%</td></tr>
-<tr><td></td></tr>
-<tr><td colspan="5" style="font-weight:bold;background:#d4f7e8">RIWAYAT ABSENSI</td></tr>
-<tr><th>Tanggal</th><th>Kegiatan</th><th>Sub Kegiatan</th><th>Status</th><th>Oleh</th></tr>
-${absList.map(a=>`<tr><td>${a.tanggal}</td><td>${e2(a.kegiatan)}</td><td>${e2(a.sub)}</td><td>${a.status}</td><td>${e2(a.oleh)}</td></tr>`).join('')}
+	<tr><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Uzur</th><th>Total</th><th>% Hadir</th></tr>
+	<tr><td>${cnt.hadir}</td><td>${cnt.alpha}</td><td>${cnt.izin}</td><td>${cnt.sakit}</td><td>${cnt.terlambat}</td><td>${cnt.uzur}</td><td>${tot}</td><td>${pct}%</td></tr>
+	<tr><td></td></tr>
+	<tr><td colspan="9" style="font-weight:bold;background:#d4f7e8">REKAP ABSENSI PER BULAN DAN KEGIATAN</td></tr>
+	<tr><th>Bulan</th><th>Kegiatan/Sub-kegiatan</th><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Uzur</th><th>Total</th></tr>
+	${summary.rows.map(a=>`<tr><td>${a.month}</td><td>${e2(a.label)}</td><td>${a.hadir}</td><td>${a.alpha}</td><td>${a.izin}</td><td>${a.sakit}</td><td>${a.terlambat}</td><td>${a.uzur}</td><td>${a.total}</td></tr>`).join('')}
 <tr><td></td></tr>
 <tr><td colspan="3" style="font-weight:bold;background:#d4f7e8">CATATAN</td></tr>
 <tr><th>Tanggal</th><th>Tipe</th><th>Isi</th></tr>
@@ -9803,7 +9851,7 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
     T('\u2705 Excel berhasil diunduh!');
   },
 
-  async _exportSntPdf(sn,absList,catList,perList,sakitList,pelList,cnt,tot,pct,fname){
+	  async _exportSntPdf(sn,summary,catList,perList,sakitList,pelList,cnt,tot,pct,fname){
     if(typeof window.jspdf==='undefined'){T('\u274C Modul PDF belum siap, coba lagi sebentar.');return;}
     const {jsPDF}=window.jspdf;
     const doc=new jsPDF({unit:'mm',format:'a4'});
@@ -9818,7 +9866,7 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
     y+=2; ensure(10);
     doc.setFont('helvetica','bold'); doc.text('Ringkasan Kehadiran',14,y); y+=lh;
     doc.setFont('helvetica','normal');
-    doc.text(`Hadir ${cnt.hadir} | Alpha ${cnt.alpha} | Izin ${cnt.izin} | Sakit ${cnt.sakit} | Terlambat ${cnt.terlambat} | Total ${tot} sesi | ${pct}% hadir`,14,y); y+=lh+3;
+	    doc.text(`Hadir ${cnt.hadir} | Alpha ${cnt.alpha} | Izin ${cnt.izin} | Sakit ${cnt.sakit} | Terlambat ${cnt.terlambat} | Uzur ${cnt.uzur} | Total ${tot} sesi | ${pct}% hadir`,14,y); y+=lh+3;
 
     const section=(title,rows,mapFn)=>{
       ensure(10);
@@ -9828,7 +9876,7 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
       for(const r of rows){ ensure(); doc.text(String(mapFn(r)).slice(0,112),14,y); y+=lh; }
       y+=3;
     };
-    section('Riwayat Absensi',absList.slice(0,300),a=>`${a.tanggal} \u00B7 ${a.kegiatan}${a.sub!=='-'?' ('+a.sub+')':''} \u00B7 ${a.status} \u00B7 ${a.oleh}`);
+	    section('Rekap Absensi Per Bulan/Kegiatan',summary.rows,a=>`${a.month} \u00B7 ${a.label} \u00B7 H ${a.hadir}, A ${a.alpha}, I ${a.izin}, S ${a.sakit}, T ${a.terlambat}, U ${a.uzur}, Total ${a.total}`);
     section('Catatan',catList,c=>`${new Date(c.createdAt).toLocaleDateString('id-ID')} \u00B7 ${c.tipe} \u00B7 ${(c.isi||c.jenis||'-')}`);
     section('Perizinan',perList,p=>`${p.tglMulai} s/d ${p.tglSelesai} \u00B7 ${p.tipeIzin} \u00B7 ${p.status}${p.alasan?' \u00B7 '+p.alasan:''}`);
     section('Catatan Sakit',sakitList,s=>`${s.tglMulai} \u00B7 ${s.status} \u00B7 ${(s.diagnosis||'-')}`);
@@ -9837,7 +9885,66 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
     doc.setFontSize(8); doc.setTextColor(150);
     doc.text('Diekspor dari '+_appN()+' pada '+new Date().toLocaleString('id-ID'),14,292);
     doc.save(fname+'.pdf');
-    T('\u2705 PDF berhasil diunduh!');
+	    T('\u2705 PDF berhasil diunduh!');
+	  },
+
+  _exportRows(title,subtitle,headers,rows,format,fname){
+    const e2=s=>esc(s);
+    const table=`<h1>${e2(title)}</h1><div style="margin-bottom:10pt">${e2(subtitle||'')}</div><table><tr>${headers.map(h=>`<th>${e2(h)}</th>`).join('')}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${e2(c)}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${headers.length}">Tidak ada data</td></tr>`}</table><p style="font-size:8pt;color:#888">Diekspor dari ${e2(_appN())} pada ${new Date().toLocaleString('id-ID')}</p>`;
+    if(format==='word'){this._downloadWordDoc(fname+'.doc',table);T('✅ Word berhasil diunduh!');return;}
+    if(format==='excel'){this._downloadHTMLTable(fname+'.xls',table,title.slice(0,28));T('✅ Excel berhasil diunduh!');return;}
+    if(format==='pdf'){
+      if(typeof window.jspdf==='undefined'){T('❌ Modul PDF belum siap, coba lagi sebentar.');return;}
+      const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});
+      let y=16;const lh=6,maxY=284;
+      const ensure=()=>{if(y>maxY){doc.addPage();y=16;}};
+      doc.setFont('helvetica','bold');doc.setFontSize(14);doc.text(title,14,y);y+=8;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.text(String(subtitle||''),14,y);y+=8;
+      doc.setFont('helvetica','bold');doc.text(headers.join(' | ').slice(0,115),14,y);y+=lh;
+      doc.setFont('helvetica','normal');
+      rows.forEach(r=>{ensure();doc.text(r.join(' | ').slice(0,115),14,y);y+=lh;});
+      doc.setFontSize(8);doc.setTextColor(140);doc.text('Diekspor dari '+_appN()+' pada '+new Date().toLocaleString('id-ID'),14,292);
+      doc.save(fname+'.pdf');T('✅ PDF berhasil diunduh!');
+    }
+  },
+
+  async exportRekapScopeBulanan(year,month,scope,id,format){
+    const monthPfx=`${year}-${String(month+1).padStart(2,'0')}`;
+    const monthsFull=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    const [sesAll,absAll,snt,kg,sk]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg')]);
+    const sntM=mapBy(snt,'id'),kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
+    const monSes=sesAll.filter(x=>x.tanggal&&x.tanggal.startsWith(monthPfx)).filter(x=>scope==='kg'?x.kgId===id:x.skId===id);
+    const sesIds=new Set(monSes.map(x=>x.id));
+    const bySnt={};
+    absAll.filter(a=>a.status&&a.status!=='none'&&sesIds.has(a.sesiId)).forEach(a=>{
+      if(!bySnt[a.sntId])bySnt[a.sntId]={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0,total:0};
+      if(bySnt[a.sntId][a.status]!==undefined){bySnt[a.sntId][a.status]++;bySnt[a.sntId].total++;}
+    });
+    const rows=Object.entries(bySnt).map(([sid,c])=>({s:sntM[sid],c})).filter(x=>x.s).sort((a,b)=>b.c.total-a.c.total||a.s.nama.localeCompare(b.s.nama,'id')).map((x,i)=>[i+1,x.s.nama,x.s.kamar||'-',x.c.hadir,x.c.alpha,x.c.izin,x.c.sakit,x.c.terlambat,x.c.uzur,x.c.total]);
+    const label=scope==='kg'?(kgM[id]?.nama||'-'):(skM[id]?.nama||'-');
+    this._exportRows('Rekap Bulanan '+label,monthsFull[month]+' '+year,['No','Nama','Kamar','Hadir','Alpha','Izin','Sakit','Terlambat','Uzur','Total'],rows,format,'Rekap_'+label.replace(/[^a-z0-9]+/gi,'_')+'_'+monthPfx);
+  },
+
+  async exportRekapHarian(date,format){
+    const [sesAll,absAll,snt,kg,sk]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg')]);
+    const sntM=mapBy(snt,'id'),kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
+    const daySes=sesAll.filter(x=>x.tanggal===date),sesM=mapBy(daySes,'id');
+    const rows=absAll.filter(a=>a.status&&a.status!=='none'&&sesM[a.sesiId]).map((a,i)=>{
+      const sx=sesM[a.sesiId],sn=sntM[a.sntId];
+      return [i+1,kgM[sx.kgId]?.nama||'-',sx.skId?(skM[sx.skId]?.nama||'-'):'-',sn?.nama||'-',sn?.kamar||'-',a.status,a.oleh||'-'];
+    });
+    this._exportRows('Rekap Harian Absensi',date,['No','Kegiatan','Sub-kegiatan','Nama','Kamar','Status','Oleh'],rows,format,'Rekap_Harian_'+date);
+  },
+
+  async exportPelanggaran(mode,format){
+    const now=new Date(),mp=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0'),today=_todayLocal();
+    const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    const [pel,snt]=await Promise.all([DB.ga('pelanggaran'),DB.ga('santri')]);
+    const sntM=mapBy(snt,'id');
+    const list=pel.filter(p=>mode==='harian'?p.tanggal===today:(p.tanggal||'').startsWith(mp)).sort((a,b)=>(a.tanggal||'').localeCompare(b.tanggal||''));
+    const rows=list.map((p,i)=>{const sn=sntM[p.sntId];return [i+1,p.tanggal||'-',sn?.nama||p.sntNama||'-',sn?.kamar||'-',p.tipe==='auto'?(p.pelanggaranJenis||'Alpha'):(p.deskripsi||'Non Alpha'),p.status||'-',p.catatanHukuman||'-'];});
+    const sub=mode==='harian'?today:(months[now.getMonth()]+' '+now.getFullYear());
+    this._exportRows('Laporan Pelanggaran '+(mode==='harian'?'Harian':'Bulanan'),sub,['No','Tanggal','Nama','Kamar','Jenis','Status','Hukuman/Catatan'],rows,format,'Pelanggaran_'+mode+'_'+(mode==='harian'?today:mp));
   },
 
   async exportRekapKegiatanBulanan(year,month,format){
@@ -9849,9 +9956,9 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
     const skM=mapBy(sk,'id'),kgM=mapBy(kg,'id');
     const rows=[];
     const addRow=(label,type,sessions)=>{
-      const abs=absAll.filter(a=>sessions.some(sx=>sx.id===a.sesiId));
+      const abs=absAll.filter(a=>a.status&&a.status!=='none'&&sessions.some(sx=>sx.id===a.sesiId));
       if(!sessions.length&&!abs.length)return;
-      const c={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0,none:0};
+      const c={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
       abs.forEach(a=>{if(c[a.status]!==undefined)c[a.status]++});
       const total=abs.length;
       const pct=total?Math.round((c.hadir/total)*100):0;
@@ -9871,6 +9978,12 @@ ${pelList.map(p=>`<tr><td>${p.tanggal}</td><td>${e2(p.tipe==='auto'?(p.pelanggar
     });
     if(!rows.length){T('ℹ️ Tidak ada data rekap pada bulan ini.');return;}
     const fname=`Rekap_Kegiatan_${monthsFull[month]}_${year}`;
+    if(format==='word'){
+      const h=`<h1>Rekap Bulanan Per Kegiatan</h1><div>${monthsFull[month]} ${year}</div><table><tr><th>No</th><th>Jenis</th><th>Kegiatan/Sub-kegiatan</th><th>Sesi</th><th>Total</th><th>Hadir</th><th>Alpha</th><th>Izin</th><th>Sakit</th><th>Terlambat</th><th>Uzur</th><th>% Hadir</th></tr>${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.type)}</td><td>${esc(r.label)}</td><td>${r.sesi}</td><td>${r.total}</td><td>${r.hadir}</td><td>${r.alpha}</td><td>${r.izin}</td><td>${r.sakit}</td><td>${r.terlambat}</td><td>${r.uzur}</td><td>${r.pct}%</td></tr>`).join('')}</table>`;
+      this._downloadWordDoc(fname+'.doc',h);
+      T('✅ Word rekap kegiatan berhasil diunduh!');
+      return;
+    }
     if(format==='pdf'){
       if(typeof window.jspdf==='undefined'){T('❌ Modul PDF belum siap, coba lagi sebentar.');return;}
       const {jsPDF}=window.jspdf;
