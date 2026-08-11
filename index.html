@@ -13126,7 +13126,14 @@ const FBSync = (() => {
   // on-demand saat user navigasi ke halaman terkait (pullForNav, cache 5 menit).
   async function pullEssential() {
     if (!navigator.onLine) return;
-    const ESSENTIAL = ['santri','kegiatan','subKeg','kamar'];
+    // v20: santri/kegiatan/subKeg/kamar sekarang REALTIME — onSnapshot sudah
+    // memuatnya saat listener attach. Mem-pull-nya lagi di sini berarti
+    // membayar reads dua kali untuk data yang sama persis setiap login.
+    // Filter defensif: kalau daftar realtime berubah lagi di masa depan,
+    // fungsi ini otomatis ikut menyesuaikan.
+    const ESSENTIAL = ['santri','kegiatan','subKeg','kamar']
+      .filter(s => !_REALTIME_STORES.includes(s));
+    if (!ESSENTIAL.length) return;
     await pull(ESSENTIAL);
     ESSENTIAL.forEach(s => _markPulled(s));
   }
@@ -13558,9 +13565,23 @@ const FBSync = (() => {
   //   - anggota      → anggota kegiatan (untuk list absensi)
   //   - settings     → nama pondok, dll (perlu sync antar device — pernah bug)
   //
-  // STORE ON-DEMAND (master data, jarang berubah):
-  //   - santri, kegiatan, subKeg, kamar, users, peraturan, kalam, auditLog
-  //   - Di-pull saat navigasi (pullForNav, cache 5 menit) atau "Sync Semua"
+  // ── v20: MASTER DATA IKUT REALTIME ──
+  //   - santri, kegiatan, subKeg, kamar
+  // Alasan: keempat store ini yang paling sering bikin laporan
+  // "device berbeda menampilkan data berbeda". Sebelumnya mereka on-demand
+  // dan hanya ter-update lewat _syncTrigger (yang ternyata tidak pernah
+  // pull — lihat Fix C) atau saat navigasi dengan cache 5 menit. Jadi santri
+  // baru dari device A bisa tidak terlihat di device B sampai reload manual.
+  // Biaya tambahan kecil: master data jarang berubah, jumlah dokumen sedikit
+  // (~200 santri, puluhan kegiatan), jadi listener nyaris tidak pernah
+  // mengirim event setelah initial load.
+  //
+  // STORE ON-DEMAND (sisanya):
+  //   - users, peraturan, kalam → kecil & sangat jarang berubah
+  //   - auditLog → TUMBUH TERUS (append-only) dan hanya dipakai di halaman
+  //     Pengaturan (60 entri terakhir). Menjadikannya realtime berarti
+  //     mengunduh SELURUH riwayat audit di setiap device — justru sumber
+  //     boros reads yang ingin dihindari. Tetap on-demand.
   //
   // PUSH: SETIAP write (input/edit/hapus) LANGSUNG dikirim ke cloud
   //       via FBSync.write → _flushWrites → _fbPatch (write-through, tidak delay).
@@ -13568,13 +13589,15 @@ const FBSync = (() => {
   //       Jadi data yang di-input di device A langsung ada di database.
   const _REALTIME_STORES = [
     'absensi','sesi','perizinan','uzur','catatanSakit','catatanSantri',
-    'pelanggaran','anggota','settings'
+    'pelanggaran','anggota','settings',
+    // v20: master data — penyebab utama divergensi antar device
+    'santri','kegiatan','subKeg','kamar'
   ];
   // Backward-compat alias
   const _LISTENER_STORES = _REALTIME_STORES;
-  // v19.1: 8 store on-demand — di-pull via pullForNav (cache 5 menit) atau pullAll.
+  // v20: 4 store on-demand — di-pull via pullForNav (cache 5 menit) atau pullAll.
   const _ON_DEMAND_STORES = [
-    'santri','kegiatan','subKeg','kamar','users','peraturan','kalam','auditLog'
+    'users','peraturan','kalam','auditLog'
   ];
   // Cache: { storeName: timestampLastPullMs }
   const _pullCache = {};
@@ -13882,7 +13905,10 @@ const FBSync = (() => {
     // boot, dan tetap aktif selama user login. Jangan detach di nav.
     if (navigator.onLine) {
       // Cek apakah listener masih aktif. Jika tidak, start.
-      if (!FBSync._unsubs || FBSync._unsubs.length < 5) {
+      // v20: bandingkan dengan jumlah store realtime sebenarnya, bukan angka
+      // hardcoded 5. Dengan 13 store realtime, ambang 5 berarti 8 listener
+      // bisa mati tanpa pernah terdeteksi.
+      if (!FBSync._unsubs || FBSync._unsubs.length < FBSync._REALTIME_STORES.length) {
         setTimeout(() => FBSync.startListeners(), 100);
       }
     }
@@ -13993,7 +14019,8 @@ document.addEventListener('visibilitychange', async () => {
     
     FBSync._flushWrites();
     // v19: Restart listeners jika mati — cek di SEMUA halaman (tidak hanya realtime)
-    if (FBSync._unsubs && FBSync._unsubs.length < 5) {
+    // v20: ambang = jumlah store realtime sebenarnya (bukan hardcoded 5)
+    if (FBSync._unsubs && FBSync._unsubs.length < FBSync._REALTIME_STORES.length) {
       console.log('[visibilitychange v19] Listener mati, restart...');
       FBSync.startListeners();
     }
