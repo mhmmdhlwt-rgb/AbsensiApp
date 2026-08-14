@@ -1,4 +1,4 @@
-> **Update terbaru:**
+> **Uupdate terbaru:**
 > - **Pilih Pesantren** di halaman awal — device baru bisa memilih pesantren/asrama yang sudah terdaftar (PIN 4 digit per pesantren) atau daftar baru. Pesantren "Assalam" memakai PIN `2014`.
 > - **Keluar/Ganti Pesantren** tersedia di halaman login & Pengaturan > Bahaya — membersihkan cache lokal device tanpa menyentuh data cloud.
 > - **Login Admin** kini punya tombol nyata di halaman login (sebelumnya belum terpasang).
