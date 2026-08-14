@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Absensi Santri",
-  "short_name": "Absensi",
-  "description": "Aplikasi Absensi Santri dengan NFC Background Listener",
+  "name": "Pesantrenku",
+  "short_name": "Pesantrenku",
+  "description": "Aplikasi manajemen pesantren, absensi santri, akademik, dan keuangan",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

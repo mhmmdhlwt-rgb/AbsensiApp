@@ -1,4 +1,4 @@
-// Service Worker — Absensi Santri PWA
+// Service Worker — Pesantrenku PWA
 // Strategi:
 // - App shell (index.html, manifest.json, icons): cache-first dengan background update
 // - API Firebase & font Google: network-only (selalu fresh)
@@ -10,7 +10,7 @@
 //      di index.html. Tanpa ini, user harus tutup semua tab untuk update.
 //   3. Navigasi fallback: jika network gagal DAN tidak ada cache, tampilkan
 //      halaman offline minimal (bukan layar putih).
-const CACHE_VERSION = 'absensi-santri-islami-v17-audit';
+const CACHE_VERSION = 'pesantrenku-v29-phase8-flat-nosplit-revisions';
 const OFFLINE_URL = './index.html'; // fallback — sama dengan app shell
 const APP_SHELL = [
   './',
@@ -18,6 +18,11 @@ const APP_SHELL = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  './assets/js/phase3-revision.js',
+  './assets/js/phase4-design-system.js',
+  './assets/js/phase5-polish-stability.js',
+  './assets/js/phase6-academic-profile-reports.js',
+  './assets/js/phase7-integrity-quicknotes.js',
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap'
 ];
 
