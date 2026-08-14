@@ -163,6 +163,18 @@ grep "_bgPullTimer\|_POLL_STORES\|_startPolling" index.html
    - Test scroll di halaman panjang — tidak boleh loncat ke atas saat ada update
    - Test tab switching — harus cepat (<100ms)
 
+## Phase 7 — Integrity Quick Notes
+
+Revisi tambahan 2026-08-13:
+
+- Menambah `assets/js/phase7-integrity-quicknotes.js`.
+- Memastikan revisi phase 3, 4, 5, dan 6 tetap dipanggil oleh `index.html`.
+- Memperbaiki izin terlambat kembali supaya tidak terus mengunci absensi sebagai `izin`.
+- Menambah repair aman untuk absensi `izin` yang telanjur tersimpan dari sistem perizinan setelah batas kembali lewat.
+- Memperluas tombol dashboard `+ Catatan` agar bisa membuat catatan umum, prestasi, catatan pelanggaran, psikologis, perizinan, catatan sakit, tagihan keuangan, dan pelanggaran manual.
+- Menambah tombol `Hapus Program Ini` di sheet edit program akademik.
+- Cache PWA dinaikkan ke `pesantrenku-v28-phase7-integrity-quicknotes`.
+
 
 
 ## Audit v3b — User Feedback Round 2 (baru diterapkan)
@@ -586,3 +598,22 @@ tenant contoh) dan jarang berubah, jadi listener nyaris tidak pernah mengirim
 event setelah initial load. Biaya initial load-nya pun bukan tambahan: sebelumnya
 store yang sama tetap dibaca lewat `pullEssential()` saat login. Yang hilang
 justru pembacaan berulang saat navigasi antar halaman.
+
+## Fase 6: Akademik multi-kriteria, profil santri, quick note, laporan sub-kegiatan
+
+**File baru:** `assets/js/phase6-academic-profile-reports.js`
+
+Perbaikan:
+- Evaluasi akademik sekarang mendukung banyak kriteria penilaian.
+- Format nilai evaluasi bisa dipilih: `ABCDE`, `1-9`, atau `1-100`.
+- Evaluasi bisa menyimpan dokumentasi maksimal 4 foto.
+- Form input catatan akademik menjadi single-santri, bisa memilih santri di luar anggota awal evaluasi, dan nilai mengikuti kriteria evaluasi.
+- Export evaluasi/program memakai kriteria sebagai kolom terpisah.
+- Profil santri ditata ulang: izin, sakit, dan uzur digabung ke tab `Status`; timeline dipindah ke bawah tab `Rekap`; akademik dan keuangan dipindah ke tab baru.
+- Admin bisa menghapus catatan akademik dari profil santri.
+- Pelanggaran manual otomatis dibuatkan catatan pelanggaran santri.
+- Bukti pembayaran menyediakan pilihan kamera dan galeri/file.
+- Dashboard mendapat tombol cepat `+ Catatan`.
+- Halaman absensi sub-kegiatan mendapat tombol mengambang `Share WA`.
+
+**Service worker:** cache dinaikkan ke `pesantrenku-v27-phase6-academic-profile-reports`.
