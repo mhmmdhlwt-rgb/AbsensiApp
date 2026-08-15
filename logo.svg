@@ -1,33 +1,30 @@
-<?xml version="1.0" encoding="utf-8"?>
-<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-	 viewBox="0 0 30 30" style="enable-background:new 0 0 30 30;" xml:space="preserve">
-<defs>
-  <style type="text/css">
-    .st194{fill:#2D2D2D;stroke:#FFFFFF;stroke-width:0.6317;stroke-miterlimit:10;}
-    .st23{fill:#FFFFFF;}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Background -->
+  <rect width="1024" height="1024" fill="#ffffff"/>
 
-    .z-breathe {
-      animation: breathe 2.5s ease-in-out infinite;
-    }
+  <defs>
+    <!-- Colors -->
+    <!-- Deep Emerald Green: #0c5641 -->
+    <!-- Gold / Ochre: #c59b27 -->
+    <!-- Cream / Off-White Wall: #f5f2eb -->
+    <!-- Shadow / Shading Cream: #e8e3d8 -->
+    <!-- Dark Roof Trim: #0c5641 -->
+  </defs>
 
-    @keyframes breathe {
-      0%, 100% { opacity: 0.7; }
-      50% { opacity: 1; }
-    }
-  </style>
-</defs>
+  <g transform="translate(0, 40)">
+    <!-- ================= MINARET (Behind right wing) ================= -->
+    <!-- Minaret Spire & Crescent -->
+    <!-- Finial -->
+    <path d="M 760 178 L 760 198" stroke="#c59b27" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="760" cy="180" r="3.5" fill="#c59b27"/>
+    <!-- Crescent Moon on Minaret -->
+    <path d="M 760 152 A 13 13 0 1 1 756 176 A 10 10 0 1 0 760 152 Z" fill="#c59b27"/>
 
-<g>
-  <path class="st194" d="M24.51,28.51H5.49c-2.21,0-4-1.79-4-4V5.49c0-2.21,1.79-4,4-4h19.03c2.21,0,4,1.79,4,4v19.03
-    C28.51,26.72,26.72,28.51,24.51,28.51z"/>
-  <g class="z-breathe">
-    <path class="st23" d="M15.47,7.1l-1.3,1.85c-0.2,0.29-0.54,0.47-0.9,0.47h-7.1V7.09C6.16,7.1,15.47,7.1,15.47,7.1z"/>
-    <polygon class="st23" points="24.3,7.1 13.14,22.91 5.7,22.91 16.86,7.1"/>
-    <path class="st23" d="M14.53,22.91l1.31-1.86c0.2-0.29,0.54-0.47,0.9-0.47h7.09v2.33H14.53z"/>
-  </g>
-</g>
-</svg>
-ret Upper Balcony Tier -->
+    <!-- Minaret Dome Cap -->
+    <path d="M 738 255 C 738 215 760 198 760 198 C 760 198 782 215 782 255 Z" fill="#0c5641"/>
+    <rect x="734" y="255" width="52" height="8" rx="2" fill="#c59b27"/>
+
+    <!-- Minaret Upper Balcony Tier -->
     <rect x="740" y="263" width="40" height="70" fill="#f5f2eb"/>
     <!-- Minaret Arched Window Upper -->
     <path d="M 753 295 L 753 318 L 767 318 L 767 295 C 767 288 753 288 753 295 Z" fill="#0c5641"/>

@@ -216,17 +216,19 @@
 /* ===== ORNAMENT PATTERNS (Phase 13) ===== */
 /* Default: Islamic Star (geo-pattern already set per theme above) */
 /* Override geo-pattern based on ornament selection */
+/* Note: CSS variables like var(--a1) don't work inside SVG data URIs.
+   Use literal colors with higher opacity so they're visible on any theme. */
 [data-ornament="arabesque"]{
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='none' stroke='var(--a1)' stroke-width='0.8' stroke-opacity='0.04'%3E%3Cpath d='M40 8 Q60 20 60 40 Q60 60 40 72 Q20 60 20 40 Q20 20 40 8 Z'/%3E%3Cpath d='M40 20 Q52 28 52 40 Q52 52 40 60 Q28 52 28 40 Q28 28 40 20 Z'/%3E%3C/g%3E%3C/svg%3E");
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='none' stroke='%23889988' stroke-width='1' stroke-opacity='0.12'%3E%3Cpath d='M40 8 Q60 20 60 40 Q60 60 40 72 Q20 60 20 40 Q20 20 40 8 Z'/%3E%3Cpath d='M40 20 Q52 28 52 40 Q52 52 40 60 Q28 52 28 40 Q28 28 40 20 Z'/%3E%3C/g%3E%3C/svg%3E");
 }
 [data-ornament="lattice"]{
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' stroke='var(--a1)' stroke-width='0.8' stroke-opacity='0.04'%3E%3Cpath d='M30 0 L60 30 L30 60 L0 30 Z'/%3E%3Cpath d='M30 15 L45 30 L30 45 L15 30 Z'/%3E%3C/g%3E%3C/svg%3E");
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' stroke='%23889988' stroke-width='1' stroke-opacity='0.12'%3E%3Cpath d='M30 0 L60 30 L30 60 L0 30 Z'/%3E%3Cpath d='M30 15 L45 30 L30 45 L15 30 Z'/%3E%3C/g%3E%3C/svg%3E");
 }
 [data-ornament="dots"]{
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cg fill='var(--a1)' fill-opacity='0.03'%3E%3Ccircle cx='20' cy='20' r='2'/%3E%3Ccircle cx='0' cy='0' r='2'/%3E%3Ccircle cx='40' cy='0' r='2'/%3E%3Ccircle cx='0' cy='40' r='2'/%3E%3Ccircle cx='40' cy='40' r='2'/%3E%3C/g%3E%3C/svg%3E");
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cg fill='%23889988' fill-opacity='0.10'%3E%3Ccircle cx='20' cy='20' r='2.5'/%3E%3Ccircle cx='0' cy='0' r='2.5'/%3E%3Ccircle cx='40' cy='0' r='2.5'/%3E%3Ccircle cx='0' cy='40' r='2.5'/%3E%3Ccircle cx='40' cy='40' r='2.5'/%3E%3C/g%3E%3C/svg%3E");
 }
 [data-ornament="waves"]{
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='40' viewBox='0 0 100 40'%3E%3Cg fill='none' stroke='var(--a1)' stroke-width='0.8' stroke-opacity='0.04'%3E%3Cpath d='M0 20 Q25 5 50 20 T100 20'/%3E%3Cpath d='M0 30 Q25 15 50 30 T100 30'/%3E%3C/g%3E%3C/svg%3E");
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='40' viewBox='0 0 100 40'%3E%3Cg fill='none' stroke='%23889988' stroke-width='1.2' stroke-opacity='0.12'%3E%3Cpath d='M0 20 Q25 5 50 20 T100 20'/%3E%3Cpath d='M0 30 Q25 15 50 30 T100 30'/%3E%3C/g%3E%3C/svg%3E");
 }
 [data-ornament="none"]{
   --geo-pattern:none;
@@ -11051,13 +11053,16 @@ const Wiz = {
       localStorage.setItem('tenant_ns',ns);
       localStorage.setItem('tenant_nama',namaRaw);
       localStorage.setItem('tenant_tipe',this._tipe);
-      // Simpan ke IndexedDB
+      // CLEAR ALL IndexedDB stores to ensure fresh start for new tenant
+      const _clrStores=['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','settings','users','kamar','catatanSantri','pelanggaran','peraturan','kalam','perizinan','uzur','catatanSakit','academicRecords','academicTargets','academicPrograms','academicEvaluations','financeBills','financePayments','qrScanLogs','hafalanTargets','hafalanProgress','cashflow','diniyahKelas','diniyahMapel','academicYears','diniyahPenempatan','rapotNilai'];
+      for(const _st of _clrStores){try{await DB.cl(_st);}catch(e){}}
+      // Save fresh settings
       await DB.p('settings',{id:'asrama',value:namaRaw});
       await DB.p('settings',{id:'lembaga_tipe',value:this._tipe});
       if(navigator.onLine){
         await _registerTenant(ns,namaRaw,pinRaw,this._tipe);
-        const users=await DB.ga('users');
-        for(const u of users){const s=Object.assign({},u);s._ts=Date.now();await _fbFetch('/users/'+u.id,'PUT',s).catch(()=>{});}
+        // Do NOT push users to cloud here — ensureDefaultAdmins() will create
+        // 6 default admin roles, and FBSync will push them automatically.
         await _fbFetch('/settings/asrama','PUT',{id:'asrama',value:namaRaw,_ts:Date.now()}).catch(()=>{});
         await _fbFetch('/settings/lembaga_tipe','PUT',{id:'lembaga_tipe',value:this._tipe,_ts:Date.now()}).catch(()=>{});
       }
@@ -11067,7 +11072,6 @@ const Wiz = {
       document.getElementById('ls').style.display='flex';
       const label=this._tipe==='pondok'?'Pondok Pesantren':'Asrama';
       T('✅ '+label+' "'+namaRaw+'" berhasil dibuat! PIN pesantren: '+pinRaw);
-      setTimeout(()=>_deduplicateAll().catch(()=>{}),3000);
     } catch(e) {
       btn.disabled=false;btn.textContent='Mulai Pakai Aplikasi →';
       errEl.textContent='⚠️ Gagal: '+e.message;errEl.style.display='block';
@@ -11178,7 +11182,7 @@ const TenantPicker = {
         const clickHandler=this._superAdmin?'':`onclick="TenantPicker.select('${it.id}','${escJ(it.nama)}','${it.tipe||'asrama'}')"`;
         const cursorStyle=this._superAdmin?'cursor:default':'cursor:pointer';
         return `<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);${cursorStyle};backdrop-filter:blur(20px)" ${clickHandler}>
-          <div style="width:42px;height:42px;border-radius:14px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${it.tipe==='pondok'?'🕌':'🏠'}</div>
+          <div style="width:42px;height:42px;border-radius:14px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;overflow:hidden"><img src="icon-192.png" style="width:100%;height:100%;border-radius:14px;object-fit:cover" onerror="this.style.display='none';this.parentElement.textContent='${it.tipe==='pondok'?'🕌':'🏠'}'"></div>
           <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><div style="font-weight:800;font-size:14px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.nama)}</div>${saBadge}</div><div style="font-size:10px;color:var(--t3);margin-top:1px">${tipeLabel}</div></div>
           ${saActions}
           ${!this._superAdmin?`<div style="color:var(--t3);font-size:16px">→</div>`:''}
@@ -11290,21 +11294,21 @@ const TenantPicker = {
       await this.load();
     }catch(e){T('❌ Gagal hapus: '+(e.message||e));}
   },
-  select(ns,nama,tipe){
-    if(!navigator.onLine){ T('⚠️ Butuh koneksi internet untuk masuk pertama kali.'); return; }
+  async select(ns,nama,tipe){
+    if(!navigator.onLine){ T('Butuh koneksi internet untuk masuk pertama kali.'); return; }
     let pin=null;
-    _fsDB.collection('registry').doc(ns).get().then(doc=>{
-      pin=doc.exists?(doc.data().pin||null):null;
-      if(!pin && (ns==='assalam'||ns==='as-salam')) pin='2014';
-      if(!pin){ T('⚠️ PIN belum diset untuk pesantren ini. Hubungi Fatum Studio.'); return; }
-      _showTenantPinDialog('🔐 '+nama, 'Masukkan PIN pesantren', pin, ()=>{
-        localStorage.setItem('tenant_ns',ns);
-        localStorage.setItem('tenant_nama',nama);
-        localStorage.setItem('tenant_tipe',tipe||'asrama');
-        T('✅ Berhasil masuk ke '+nama+'! Memuat...');
-        setTimeout(()=>location.reload(),700);
-      });
-    }).catch(e=>{T('❌ Gagal: '+(e.message||e));});
+    try{const doc=await _fsDB.collection('registry').doc(ns).get();pin=doc.exists?(doc.data().pin||null):null;}catch(e){}
+    if(!pin && (ns==='assalam'||ns==='as-salam')) pin='2014';
+    if(!pin){ T('PIN belum diset untuk pesantren ini. Hubungi Fatum Studio.'); return; }
+    _showTenantPinDialog(nama, 'Masukkan PIN pesantren', pin, async ()=>{
+      localStorage.setItem('tenant_ns',ns);
+      localStorage.setItem('tenant_nama',nama);
+      localStorage.setItem('tenant_tipe',tipe||'asrama');
+      const _cs=['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','settings','users','kamar','catatanSantri','pelanggaran','peraturan','kalam','perizinan','uzur','catatanSakit','academicRecords','academicTargets','academicPrograms','academicEvaluations','financeBills','financePayments','qrScanLogs','hafalanTargets','hafalanProgress','cashflow','diniyahKelas','diniyahMapel','academicYears','diniyahPenempatan','rapotNilai'];
+      for(const s of _cs){try{await DB.cl(s);}catch(e){}}
+      T('Berhasil masuk ke '+nama+'! Memuat...');
+      setTimeout(()=>location.reload(),700);
+    });
   },
   showSignup(){
     document.getElementById('tenant-picker').style.display='none';
@@ -21854,8 +21858,8 @@ window.FBSync = FBSync;
 
   function showOnboardingStep(step) {
     // Hide all overlays
-    const ls = document.getElementById('ls'); if (ls) ls.style.display = 'none';
-    const tp = document.getElementById('tenant-picker'); if (tp) tp.style.display = 'none';
+    const ls = document.getElementById('ls'); if (ls) { ls.style.display = 'none'; ls.style.pointerEvents = 'none'; }
+    const tp = document.getElementById('tenant-picker'); if (tp) { tp.style.display = 'none'; tp.style.pointerEvents = 'none'; }
     const sw = document.getElementById('setup-wiz'); if (sw) sw.style.display = 'none';
 
     // Create or update onboarding overlay
@@ -22283,9 +22287,20 @@ window.FBSync = FBSync;
     clearOnboardingState();
     const overlay = document.getElementById('p12-onboarding');
     if (overlay) overlay.remove();
-    // Show login screen
+    // Show login screen — restore pointer events and scroll
     const ls = document.getElementById('ls');
-    if (ls) { ls.style.display = 'flex'; ls.classList.remove('hide'); }
+    if (ls) {
+      ls.style.display = 'flex';
+      ls.classList.remove('hide');
+      ls.style.pointerEvents = '';
+      ls.style.overflow = '';
+      ls.style.position = '';
+    }
+    // Also restore #tenant-picker and #main-app
+    const tp = document.getElementById('tenant-picker');
+    if (tp) tp.style.pointerEvents = '';
+    const ma = document.getElementById('main-app');
+    if (ma) ma.style.display = 'none';
     if (typeof renderLogin === 'function') renderLogin();
   }
 
