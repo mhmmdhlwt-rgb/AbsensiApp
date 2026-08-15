@@ -36,52 +36,202 @@
   --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%230d9466' stroke-width='1' stroke-opacity='0.07'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
 }
 
-/* ===== COLOR THEMES (Phase 12B) ===== */
-/* Theme: Emerald (default — Islamic green + gold) */
+/* ===== COLOR THEMES (Phase 13) — 9 Soft Palettes ===== */
+
+/* Helper: Islamic geometric star pattern (default ornament) */
+/* Each theme defines: --a1 (accent), --a2 (secondary), --grad, --gs, --bg, --geo-pattern, --shadow-glow */
+/* Dark mode defines: --bg, --su, --su2, --sub, --gl, --glb, --t1-t4, --dv, --inp, --nav, --a1-dark, --a2-dark, --grad-dark, --geo-pattern-dark */
+
+/* 1. Emerald — Soft Sage + Warm Gold */
 [data-color-theme="emerald"]{
-  --a1:#0db57f;--a2:#c9a227;
-  --grad:linear-gradient(135deg,#12c290 0%,#0f9d72 55%,#c9a227 100%);
-  --gs:linear-gradient(135deg,rgba(13,181,127,.14) 0%,rgba(201,162,39,.14) 100%);
-  --shadow-glow:0 14px 38px rgba(13,181,127,.30);
-  --bg:#f4f7f0;
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%230d9466' stroke-width='1' stroke-opacity='0.07'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+  --a1:#4ca888;--a2:#b8945e;
+  --grad:linear-gradient(135deg,#5cba94 0%,#4ca888 50%,#b8945e 100%);
+  --gs:linear-gradient(135deg,rgba(76,168,136,.10) 0%,rgba(184,148,94,.10) 100%);
+  --shadow-glow:0 14px 38px rgba(76,168,136,.22);
+  --bg:#f6f8f3;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%234ca888' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
 }
-/* Theme: Sapphire (deep blue + silver — calm, authoritative) */
+[data-color-theme="emerald"][data-theme=dark]{
+  --bg:#0c1410;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#eef4ed;--t2:#b4c4b8;--t3:#7a8a80;--t4:#4a5449;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(12,20,16,.82);
+  --a1:#5cba94;--a2:#c4a670;--grad:linear-gradient(135deg,#5cba94 0%,#4ca888 50%,#c4a670 100%);
+  --shadow-glow:0 14px 38px rgba(92,186,148,.18);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%235cba94' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 2. Sapphire — Soft Sky Blue + Misty Silver */
 [data-color-theme="sapphire"]{
-  --a1:#2563eb;--a2:#64748b;
-  --grad:linear-gradient(135deg,#3b82f6 0%,#2563eb 55%,#64748b 100%);
-  --gs:linear-gradient(135deg,rgba(37,99,235,.12) 0%,rgba(100,116,139,.12) 100%);
-  --shadow-glow:0 14px 38px rgba(37,99,235,.28);
-  --bg:#f0f4f8;
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%232563eb' stroke-width='1' stroke-opacity='0.06'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+  --a1:#5b8def;--a2:#94a3b8;
+  --grad:linear-gradient(135deg,#6ba0f5 0%,#5b8def 50%,#94a3b8 100%);
+  --gs:linear-gradient(135deg,rgba(91,141,239,.09) 0%,rgba(148,163,184,.09) 100%);
+  --shadow-glow:0 14px 38px rgba(91,141,239,.20);
+  --bg:#f3f6fb;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%235b8def' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
 }
-/* Theme: Amethyst (purple + lavender — spiritual, regal) */
+[data-color-theme="sapphire"][data-theme=dark]{
+  --bg:#0a0f1a;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#edf1f8;--t2:#b0bcce;--t3:#7884a0;--t4:#424858;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(10,15,26,.82);
+  --a1:#6ba0f5;--a2:#a8b8d0;--grad:linear-gradient(135deg,#6ba0f5 0%,#5b8def 50%,#a8b8d0 100%);
+  --shadow-glow:0 14px 38px rgba(107,160,245,.16);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%236ba0f5' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 3. Amethyst — Soft Lavender + Dusty Mauve */
 [data-color-theme="amethyst"]{
-  --a1:#7c3aed;--a2:#a78bfa;
-  --grad:linear-gradient(135deg,#8b5cf6 0%,#7c3aed 55%,#a78bfa 100%);
-  --gs:linear-gradient(135deg,rgba(124,58,237,.12) 0%,rgba(167,139,250,.12) 100%);
-  --shadow-glow:0 14px 38px rgba(124,58,237,.28);
-  --bg:#f5f3f8;
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%237c3aed' stroke-width='1' stroke-opacity='0.06'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+  --a1:#9d7ce0;--a2:#b4a0d4;
+  --grad:linear-gradient(135deg,#ab8ef0 0%,#9d7ce0 50%,#b4a0d4 100%);
+  --gs:linear-gradient(135deg,rgba(157,124,224,.09) 0%,rgba(180,160,212,.09) 100%);
+  --shadow-glow:0 14px 38px rgba(157,124,224,.20);
+  --bg:#f7f5fa;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%239d7ce0' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
 }
-/* Theme: Sunset (warm amber + coral — energetic, warm) */
+[data-color-theme="amethyst"][data-theme=dark]{
+  --bg:#100c16;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#f2edf8;--t2:#c0b4d4;--t3:#8878a0;--t4:#4a4058;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(16,12,22,.82);
+  --a1:#ab8ef0;--a2:#c4b0dc;--grad:linear-gradient(135deg,#ab8ef0 0%,#9d7ce0 50%,#c4b0dc 100%);
+  --shadow-glow:0 14px 38px rgba(171,142,240,.16);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23ab8ef0' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 4. Sunset — Soft Peach + Buttercream */
 [data-color-theme="sunset"]{
-  --a1:#ea580c;--a2:#fbbf24;
-  --grad:linear-gradient(135deg,#f97316 0%,#ea580c 55%,#fbbf24 100%);
-  --gs:linear-gradient(135deg,rgba(234,88,12,.12) 0%,rgba(251,191,36,.12) 100%);
-  --shadow-glow:0 14px 38px rgba(234,88,12,.28);
-  --bg:#fdf6f0;
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23ea580c' stroke-width='1' stroke-opacity='0.06'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+  --a1:#e8945a;--a2:#e4b87a;
+  --grad:linear-gradient(135deg,#f0a868 0%,#e8945a 50%,#e4b87a 100%);
+  --gs:linear-gradient(135deg,rgba(232,148,90,.09) 0%,rgba(228,184,122,.09) 100%);
+  --shadow-glow:0 14px 38px rgba(232,148,90,.20);
+  --bg:#fbf6f0;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23e8945a' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
 }
-/* Theme: Ocean (teal + cyan — fresh, clean, modern) */
+[data-color-theme="sunset"][data-theme=dark]{
+  --bg:#160e0a;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#f8f0e8;--t2:#d0b8a0;--t3:#a08870;--t4:#584840;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(22,14,10,.82);
+  --a1:#f0a868;--a2:#e8c490;--grad:linear-gradient(135deg,#f0a868 0%,#e8945a 50%,#e8c490 100%);
+  --shadow-glow:0 14px 38px rgba(240,168,104,.16);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23f0a868' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 5. Ocean — Soft Teal + Aqua Mist */
 [data-color-theme="ocean"]{
-  --a1:#0891b2;--a2:#22d3ee;
-  --grad:linear-gradient(135deg,#06b6d4 0%,#0891b2 55%,#22d3ee 100%);
-  --gs:linear-gradient(135deg,rgba(8,145,178,.12) 0%,rgba(34,211,238,.12) 100%);
-  --shadow-glow:0 14px 38px rgba(8,145,178,.28);
-  --bg:#f0f9fa;
-  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%230891b2' stroke-width='1' stroke-opacity='0.06'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+  --a1:#4ab0c4;--a2:#7ccfdc;
+  --grad:linear-gradient(135deg,#5cc0d4 0%,#4ab0c4 50%,#7ccfdc 100%);
+  --gs:linear-gradient(135deg,rgba(74,176,196,.09) 0%,rgba(124,207,220,.09) 100%);
+  --shadow-glow:0 14px 38px rgba(74,176,196,.20);
+  --bg:#f0f8f9;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%234ab0c4' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
 }
+[data-color-theme="ocean"][data-theme=dark]{
+  --bg:#081416;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#e8f4f6;--t2:#a8c8ce;--t3:#708890;--t4:#3a484c;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(8,20,22,.82);
+  --a1:#5cc0d4;--a2:#8cdcec;--grad:linear-gradient(135deg,#5cc0d4 0%,#4ab0c4 50%,#8cdcec 100%);
+  --shadow-glow:0 14px 38px rgba(92,192,212,.16);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%235cc0d4' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 6. Rose — Soft Blush + Antique Rose */
+[data-color-theme="rose"]{
+  --a1:#c87a8a;--a2:#d4a0a8;
+  --grad:linear-gradient(135deg,#d48898 0%,#c87a8a 50%,#d4a0a8 100%);
+  --gs:linear-gradient(135deg,rgba(200,122,138,.09) 0%,rgba(212,160,168,.09) 100%);
+  --shadow-glow:0 14px 38px rgba(200,122,138,.20);
+  --bg:#faf5f6;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23c87a8a' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-color-theme="rose"][data-theme=dark]{
+  --bg:#14080c;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#f6e8ec;--t2:#d0b4bc;--t3:#987880;--t4:#503840;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(20,8,12,.82);
+  --a1:#d48898;--a2:#e0a8b0;--grad:linear-gradient(135deg,#d48898 0%,#c87a8a 50%,#e0a8b0 100%);
+  --shadow-glow:0 14px 38px rgba(212,136,152,.16);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23d48898' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 7. Forest — Deep Sage + Olive */
+[data-color-theme="forest"]{
+  --a1:#6b8e5a;--a2:#9caa7a;
+  --grad:linear-gradient(135deg,#7aa068 0%,#6b8e5a 50%,#9caa7a 100%);
+  --gs:linear-gradient(135deg,rgba(107,142,90,.09) 0%,rgba(156,170,122,.09) 100%);
+  --shadow-glow:0 14px 38px rgba(107,142,90,.20);
+  --bg:#f4f7f0;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%236b8e5a' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-color-theme="forest"][data-theme=dark]{
+  --bg:#0a100a;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#e8f0e4;--t2:#b0c4a8;--t3:#788c70;--t4:#3a4a38;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(10,16,10,.82);
+  --a1:#7aa068;--a2:#a8c088;--grad:linear-gradient(135deg,#7aa068 0%,#6b8e5a 50%,#a8c088 100%);
+  --shadow-glow:0 14px 38px rgba(122,160,104,.16);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%237aa068' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 8. Indigo — Soft Indigo + Periwinkle */
+[data-color-theme="indigo"]{
+  --a1:#6878c0;--a2:#9098d0;
+  --grad:linear-gradient(135deg,#7888d0 0%,#6878c0 50%,#9098d0 100%);
+  --gs:linear-gradient(135deg,rgba(104,120,192,.09) 0%,rgba(144,152,208,.09) 100%);
+  --shadow-glow:0 14px 38px rgba(104,120,192,.20);
+  --bg:#f4f5fa;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%236878c0' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-color-theme="indigo"][data-theme=dark]{
+  --bg:#0a0c14;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#e8eaf4;--t2:#a8b0c8;--t3:#707890;--t4:#383c50;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(10,12,20,.82);
+  --a1:#7888d0;--a2:#a0a8e0;--grad:linear-gradient(135deg,#7888d0 0%,#6878c0 50%,#a0a8e0 100%);
+  --shadow-glow:0 14px 38px rgba(120,136,208,.16);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%237888d0' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* 9. Sand — Warm Desert + Terracotta */
+[data-color-theme="sand"]{
+  --a1:#b08850;--a2:#c8a878;
+  --grad:linear-gradient(135deg,#c09860 0%,#b08850 50%,#c8a878 100%);
+  --gs:linear-gradient(135deg,rgba(176,136,80,.09) 0%,rgba(200,168,120,.09) 100%);
+  --shadow-glow:0 14px 38px rgba(176,136,80,.20);
+  --bg:#faf6f0;
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23b08850' stroke-width='1' stroke-opacity='0.05'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-color-theme="sand"][data-theme=dark]{
+  --bg:#140e08;--su:rgba(255,255,255,.04);--su2:rgba(255,255,255,.03);--sub:rgba(255,255,255,.08);
+  --gl:rgba(255,255,255,.05);--glb:rgba(255,255,255,.09);
+  --t1:#f6f0e4;--t2:#d0c0a8;--t3:#988868;--t4:#504030;
+  --dv:rgba(255,255,255,.06);--inp:rgba(255,255,255,.06);--nav:rgba(20,14,8,.82);
+  --a1:#c09860;--a2:#d8b888;--grad:linear-gradient(135deg,#c09860 0%,#b08850 50%,#d8b888 100%);
+  --shadow-glow:0 14px 38px rgba(192,152,96,.16);
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23c09860' stroke-width='1' stroke-opacity='0.04'%3E%3Cpath d='M36 2 L58 14 L58 40 L36 52 L14 40 L14 14 Z'/%3E%3Cpath d='M36 20 L48 27 L48 41 L36 48 L24 41 L24 27 Z'/%3E%3Ccircle cx='36' cy='36' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* ===== ORNAMENT PATTERNS (Phase 13) ===== */
+/* Default: Islamic Star (geo-pattern already set per theme above) */
+/* Override geo-pattern based on ornament selection */
+[data-ornament="arabesque"]{
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='none' stroke='var(--a1)' stroke-width='0.8' stroke-opacity='0.04'%3E%3Cpath d='M40 8 Q60 20 60 40 Q60 60 40 72 Q20 60 20 40 Q20 20 40 8 Z'/%3E%3Cpath d='M40 20 Q52 28 52 40 Q52 52 40 60 Q28 52 28 40 Q28 28 40 20 Z'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-ornament="lattice"]{
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' stroke='var(--a1)' stroke-width='0.8' stroke-opacity='0.04'%3E%3Cpath d='M30 0 L60 30 L30 60 L0 30 Z'/%3E%3Cpath d='M30 15 L45 30 L30 45 L15 30 Z'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-ornament="dots"]{
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cg fill='var(--a1)' fill-opacity='0.03'%3E%3Ccircle cx='20' cy='20' r='2'/%3E%3Ccircle cx='0' cy='0' r='2'/%3E%3Ccircle cx='40' cy='0' r='2'/%3E%3Ccircle cx='0' cy='40' r='2'/%3E%3Ccircle cx='40' cy='40' r='2'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-ornament="waves"]{
+  --geo-pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='40' viewBox='0 0 100 40'%3E%3Cg fill='none' stroke='var(--a1)' stroke-width='0.8' stroke-opacity='0.04'%3E%3Cpath d='M0 20 Q25 5 50 20 T100 20'/%3E%3Cpath d='M0 30 Q25 15 50 30 T100 30'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-ornament="none"]{
+  --geo-pattern:none;
+}
+
 /* Dark theme overrides apply on top of color theme */
 
 [data-theme=dark]{
@@ -1751,244 +1901,7 @@ const _normNm=s=>String(s||'').toLowerCase()
 // karena itu data rusuk/bukan santri valid.
 // Dipakai oleh App._syncNfcAssalam() untuk mencocokkan NFC UID
 // ke record santri yang sudah ada (match by nama utama, NIS fallback).
-const _ASSALAM_NFC_DATA=`Aghitsa Maulidya Alwi, X 1, 260909
-Alvina Rahmadania, X 1
-Aqila Lailatul Husna, X 1, 261072
-Arsyaqiela Abida Rahma, X 1, 260637
-Aulia Izzatun Nisa, X 1, 260035
-Bilqiss Bazliyah, X 1, 231370
-Chelsea Fatimatuzzahra, X 1, 260881
-Dalyla Khidmaty Umy, X 1, 260527
-Embun Filla Wahidtha, X 1, 260112
-Fahnia Rahma, X 1, 260171
-Funny Quin Neira, X 1, 260753
-Jezcelyn Cantika Dewi, X 1, 260991
-Khania Fitiyaatiqah, X 1, 260004
-Lina Kholifatus Sakhiy, X 1, 260905
-Nadya Aliatus Zahra, X 1, 261031
-Naura Putri, X 1, 260172
-Nayla Syadina Azzahra, X 1, 260144
-Niki Yuktiana Zahra, X 1, 251812
-Nur Ayla Maghfuri, X 1, 260138
-Qinandaratihkhumairoh, X 1, 260318
-Rizky Dzakira Talita, X 1, 260854
-Yassir, X 1, 123456
-Yumna Queisha Anya, X 1, 260961
-Zuniyanda Savara, X 1, 260849
-Adiba Khanza Alina, X 2, 260557, 19:29:4F:13
-Airin Nazwa Salsabila, X 2, 260027, 4F:F5:57:63
-Amelia Retazania Az Zahra, X 2, 260116, B9:2F:32:13
-Aqilla Syifa Az-zahra, X 2, 261046, 9F:EC:05:C1
-Askia Zahwa Mikaila, X 2, 261267, 3F:37:5D:63
-Auliya Zahra Talita, X 2, 260066, 7F:83:B2:63
-Dwinta Fitri Manda Sari, X 2, 212040, E7:AA:02:FB
-Fakhira Asyabiya Rafifa, X 2, 212012, 7F:55:47:C1
-Inas Tahta Maulaya, X 2, 210383, 1D:C3:DB:A1
-Nafisa Dinar S, X 2, 260038, BF:15:14:C1
-Nafisah, X 2
-Nazwa Ayu Putri Khumairoh, X 2, 261078, 1F:B6:1B:C1
-Nissa Ausyifa, X 2, 260689, DF:17:70:C1
-Rara Ramadhani, X 2, 260308
-Sabrina Hayyun Rizquna, X 2, 260304, F7:02:32:FB
-Sofi Karomatus, X 2, 260926, AF:83:27:C1
-Yulia Pertiwi, X 2, 260870, 2F:B5:37:C1
-Alina Latifatul Qolbi, X 3, 220498
-Angelina Syela Octavia, X 3, 230117, DF:EB:5C:C1
-Annastasya Putri Okyta, X 3, 250141
-Calista Tahra Sabrina, X 3, 241148, 4F:A6:1E:63
-Fauziyah Syabilla Syamdina, X 3, 210218, 4D:29:0B:A2
-Ica Novita Sari, X 3, 241652, DD:70:2B:C3
-Lubnah Humairoh, X 3, 221190, 0F:3D:28:63
-Putri Dewi Nur Fadilah, X 3, 230180, EA:BD:22:0C
-Safira Budi Rindiani, X 3, 231326, 8F:40:C5:63
-Siti Nur Azizah, X 3, 251580, DF:59:86:63
-Zazkia Alfira Maulida, X 3, 240473
-Aida Duwi Aprilliya, X 4, 250957
-Asyifa Qolbi Putri Riflina, X 4, 240308
-Azkayra Syakira Edityas, X 4, 250995
-Dhea Rani Safira Putri, X 4, 210534
-Faizzah Nahla, X 4, 241103
-Karima Fajrunnada, X 4, 250502
-Karunia Putri Sherly Suryanto, X 4, 250357
-Komang Azida Qotrun N, X 4, 240088
-Nada Salsabila, X 4, 212206
-Nuzulia Farah Fanisa Putri, X 4, 241256
-Qori Raisa Putri, X 4, 251039
-Silna Faradisa, X 4, 250794
-Zaskia Alfira Maulida, X 4, 240473
-Aida Faizah, X 5, 230281, 0A:94:51:0C
-Aisyah Rahma Ababil, X 5, 201088
-Alifiya Khoirunnisa, X 5, 250854, 7F:CB:55:63
-Ananda Veronika, X 5, 221412, 06:43:E4:9E
-Deswinta Cindy Cloudia, X 5, 210653, EE:3E:8B:39
-Filza Aliana Farzana, X 5, 212101
-Khanza Nararya Mada A.w, X 5, 251298, 1F:07:93:63
-Lutvia Reza Itqiyana, X 5, 250891, 7F:4A:89:63
-Renita Disya Febrianti, X 5, 240811, 9E:C0:6A:39
-Siti Aisyah, X 5, 241736, 4E:D6:78:39
-Siti Astika Nuri Juwita, X 5, 241688, 1E:2F:90:39
-Wulan Ramadaniah, X 5, 251296, 1F:AA:B2:63
-Zaskia Aulia Nafisah, X 5, 240503, 3E:8D:8E:39
-Afifah Azza Salsabila, X 6, 240721, 3D:99:08:A2
-Aureliza Rahma, X 6, 250089, 2D:D1:39:C3
-Azka Nadia Ar Rosyid, X 6, 212190, 5F:EC:9B:63
-Azkiya Nada Ar Rosyid, X 6, 212191, 7F:AF:86:63
-Cinta Nurmala, X 6, 220892, EF:7E:3E:63
-Deffa Julyana Nur Aini, X 6, 210737, CE:A8:83:39
-Desi Dwi Anggraini, X 6, 240812, 9D:BD:AD:1B
-Dinda Adrillea Saleha, X 6, 230389, 1F:91:3D:63
-Keyla Dwi Herlambang, X 6, 240121, 9F:00:1C:63
-Khusnia Syafa Salsabila, X 6, 251372, 2D:A2:D3:A1
-Nur Auliya Sandy, X 6, 231632, 8F:38:89:63
-Raina Labibah Yusuf, X 6, 250065, 1F:59:02:64
-Raisa Putri Novitasari, X 6, 220424, CF:54:40:63
-Sofia Nabila, X 6, 231084, 77:CF:3C:FB
-Syafinatun Nadja, X 6, 241022
-Syahron Oktavia Putri, X 6, 201033
-Wiken Asmarani Putri, X 6, 220112, DF:1E:A4:63
-Yaqut Izzatul Wafiroh, X 6, 210052
-Andini Larasati Herlambang, X 7, 210156
-Dhea Feby Asiska, X 7, 231089, 9F:0F:02:64
-Faiqoh Abidah, X 7, 221169, BF:C4:21:63
-Fikroh Abidah, X 7, 221171, 51:10:79:04
-Julia Raida Khansa, X 7, 240725, 9E:8B:72:39
-Larisa Izza Salsabila, X 7, 250944, BA:C6:8A:15
-Naura Zulfa Choirunnisa, X 7, 240645
-Nazwa Dwi Rahmadani, X 7, 220029, 4F:E1:86:63
-Nila Juniar Sukma Ayu, X 7, 201025
-Nurul Azizatul M., X 7, 231202, 69:BE:3B:13
-Putri Aulia, X 7, 212173, 9A:FF:5F:15
-Quilla Alma Nafiz, X 7, 250780, EF:86:A1:63
-Sarah Aliya, X 7, 240782
-Shafa Aulia Ramadani, X 7, 230082, DF:52:0A:C1
-Syifa Al Hasna, X 7, 221589
-Tazkya Nuraini Mirdi, X 7, 260715
-Vina Nailatul Izza, X 7, 241773, EE:BC:73:39
-Aini Zahrotussita, X 8, 251295, 4F:69:92:63
-Aisya Syabila, X 8, 210071, 0E:02:78:39
-Alexa Kharomi Alfian Putri, X 8, 250187, EF:3D:B0:63
-Ayu Rahma Nur Safira, X 8, 210042, AE:B6:4F:39
-Bilqis Azra Qonita, X 8, 240797, FE:F9:56:39
-Durrotun Nafisah, X 8, 230164
-Emilda Aulia Sabia Putria, X 8, 220626, BF:AE:87:63
-Fitriatul Ulumiah, X 8, 241288, BF:7D:17:63
-Icha Pipi Riyanti, X 8, 220435, 99:24:52:13
-Kasyifa Roghida Ramadani, X 8, 250916, 7F:25:89:63
-Lathiifa Nur Aini, X 8, 231723, A9:6F:37:13
-Melanie Septia R., X 8, 240789, 0E:92:55:39
-Nabila Budi Asih, X 8, 210745, 2E:AA:83:39
-Nabila Ramadani Setyowati, X 8, 231527, 3A:F9:63:D9
-Nadia Fatimatus Salwa, X 8, 250455, CF:B4:23:63
-Nadila Misya Elsyarif, X 8, 240022, 4F:7F:29:63
-Najla Muthia Afandi, X 8, 250188, 8D:9B:F5:1B
-Nita Khoirun Nisa, X 8, 241440
-Nova Ayuk H. S, X 8, 240577
-Pinandita Annisa Dewi, X 8, 250243, 7F:7F:8D:63
-Pinnkan Alfiana Aulia, X 8, 250389
-Queena Rossalina Zayyin, X 8, 231049, 0F:8B:D1:63
-Salwa Danya Azzahra, X 8, 250632, 6F:D1:A2:63
-Sheenas Dhia Raysha Windria, X 8, 241258, 0E:16:78:39
-Shila Rahmatil Ummah, X 8, 220805
-Umi Titimah Nafiah, X 8, 250928, 0F:1F:94:63
-Afita Rizki Maulidia, X 9, 241128, 77:30:FF:FA
-Alya Nur Facia, X 9, 230762, 89:E5:4C:13
-Amalia Sholeha, X 9, 230086, EF:1D:B2:63
-Aulia Azhahra, X 9, 211883, CF:94:A7:63
-Aydin Dzakira Sadana Dias, X 9, 220138, 2F:48:B0:63
-Claricha Puri Wardani, X 9, 250516, EF:F8:54:C1
-Clourinda Anatasya Widodo, X 9, 211078, 2E:DD:52:39
-Dhanisa Alfira, X 9, 240273, 7F:6E:30:63
-Dinda Nur Aulia Sya'ban Ningrum, X 9, 211628, 7F:01:2B:63
-Gelsi Shayla Rizqia, X 9, 220478, 4F:41:89:63
-Hilma Fakhrunnisa, X 9, 251264, FF:6D:B7:63
-Naila hasanati matnaim, X 9, , 1F:4A:90:63
-Nasywa Ulin Nuha, X 9, 241865, 0F:C0:85:63
-Natasya Aulia, X 9, 240106, 1E:83:7F:39
-Nurul Hidayah, X 9, 231386
-Raudatul Muslimah, X 9, 230964, 5D:EB:F7:A1
-Shifa Mura, X 9, 250217
-Syakila Pramesti N., X 9, 241019, 9D:90:39:C3
-Umi Wahidah Haromaini, X 9, 250520, 0F:D3:AC:63
-Zasmin Mutiara Sifa Anggraini, X 9, 251184, BF:3B:D4:63
-Apter Septa P., X 10, 241004, DE:6B:65:39
-Assyifa Adzwa, X 10, 221965, AF:BB:A0:63
-Aulia Nuril Maulida, X 10, 212192, EF:16:9E:63
-Azzahra Asyifa, X 10, 250508, 8D:54:50:C3
-Cici Fathiha Russdya Addine, X 10, 240096, 4E:77:94:39
-Cinta Ramadani, X 10, 240792, FF:AF:B2:63
-Hanna Qoyyimatuz Z., X 10, 250360, 4D:71:35:C3
-Janeta Muthia Nur Rohmah, X 10, 210053, EE:58:8B:39
-Kayla Mei Esyanti, X 10, 230242, 1A:F3:64:D9
-Keysa Safa Al Azka, X 10, 241074, 8E:48:8F:39
-Leoni Anas Adelia, X 10, 241421, 1F:50:8B:63
-Mirza Ilyana, X 10, 240940, AF:B6:50:63
-Nadzif Qolbi Azkia, X 10, 241280, 6E:7E:91:39
-Naswa Azalea Salsabila S., X 10, 240602, 4F:87:03:C1
-Nayla Kroirun Nisa, X 10, 240223, 5E:51:60:39
-Nayla Sasy Kirana, X 10, 240428, 1E:76:66:39
-Nazwa Zillian Sutanto, X 10, 230700, DF:CD:23:C1
-Sasha Aunia, X 10, 240694, AE:A9:54:39
-Siti Athaya Sabrina Wijaya, X 10, 220997, EE:58:7B:39
-Syafira Keyla Nazwa, X 10, 231139, DF:94:13:C1
-Ulil Mar'atul Hidayah, X 10, 241173, CF:34:DA:63
-Adila Humairo, X 11, 230097
-Anisa Azka Khoirunnisa, X 11, 250558, 7F:77:8D:63
-Cindy Lailatul Khumairoh, X 11, 230701, DA:94:69:D9
-Cintya Sari Devi, X 11, 231241, 59:33:37:13
-Elmira Savana Octavia, X 11, 251433
-Endang Sri Rahayu, X 11, 220309
-Farah Kiki Ariska, X 11, 241512
-Ghilfana Mufidah, X 11, 241045
-Ita Iqomatul Lutfiah, X 11, 241179, AF:8A:49:63
-Jihan Mirza F., X 11, 241075
-Kaiya Tertia Nafeza, X 11, 250451, CF:20:9E:63
-Khintan Kirarla Putri, X 11, 240129, 4E:B4:82:39
-Linda Anggun Kartika Dewi, X 11, 211736
-Nada Salsabia, X 11, 212206
-Naura Allisyahana, X 11, 220207, 8F:4E:25:63
-Ngindiana Zulfa Safitri, X 11, 250716, E7:E9:1C:FB
-Nihayatul Wafiroh, X 11, 241469, 0E:C5:86:39
-Nurfarida Izzatul W, X 11, 241087, BF:D4:9C:63
-Rasya Hidaytul Umami, X 11, 251428, 9D:4B:DD:A1
-Salsabela Azelia Alzahra, X 11, 240734, FE:09:92:39
-Shabrina Amalia Putri, X 11, 220269, 5E:9C:66:39
-Wahyu eka leistari, X 11, , EF:7C:29:63
-Wayan Kahla Aynum Mahya, X 11, 251399, DF:C2:47:63
-Zahrotul Jannah, X 11, 251008, 0F:65:3A:63
-Zulfa Anisa, X 11, 240719, 3F:3C:1E:63
-Agas Tiara, X 12, 261632, C9:17:38:13
-Amira Putri Hamdani, X 12, 260491, EF:89:55:63
-Ani Salamah, X 12, 260006, 69:92:37:13
-Annisa Faiha, X 12, 260890, 3F:DF:1E:C1
-Aurel Aurora, X 12, 261077, 7F:2B:68:63
-Azahra Zulfiyah, X 12, 260071, 6F:C1:57:63
-Huri Hilyatul Ifadah, X 12, 261188, 59:99:67:13
-Imani Nurul Khusna, X 12, 260814, 1F:40:34:C1
-Isroh Hikmah Yani, X 12, 220801, 4A:55:53:15
-Izza Bilqis Kamilah, X 12, 260008, 8F:12:62:63
-Masayu Clarista Wibowo, X 12, 260725, D9:72:3B:13
-Mutiara, X 12
-Quinzah Maharani, X 12, 260317, CF:B0:05:C1
-Renata Angelina, X 12, 261137, 69:1A:35:13
-Altifatuzzahro Al Ajmala, Pengurus
-Desi Oktaviani, Pengurus
-Dian Muhajiroh, Pengurus
-Hana Asyifa Qurotul A'yuni, Pengurus
-Hanum Nasruddin, Pengurus
-Hilda Aurellia Ayu Septi D, Pengurus
-Kania Maharani Setiowati, Pengurus
-Rintan Anggraini Yulia S, Pengurus
-Siska Nur Azizah, Pengurus, , 2A:39:8E:15
-Sofiatul Munawaroh, Pengurus, , 61:6A:21:33
-Wike Ayu Alvionita, Pengurus
-Ana Auliya Q. Q, Mba-mba
-Della Rosita, Mba-mba
-Elok Syakirotun Ni'mah, Mba-mba
-Faridatul Amanah, Mba-mba
-Hikmah Nur Salsabila, Mba-mba
-Lilik Hidayati, Mba-mba
-Sandia Muqodimah, Mba-mba
-Siti Maesaroh, Mba-mba`;
+const _ASSALAM_NFC_DATA=``;
 
 
 // ── UZUR (HAID) MANAGEMENT ────────────────────────────────────
@@ -2128,7 +2041,7 @@ const PIN={
 };
 
 // SEED DATA
-const APP_VERSION = '2.3.0-akademik-keuangan-evaluasi'; // Naikkan versi ini untuk force-reset localStorage pada APK baru
+const APP_VERSION = '3.0.0-clean-no-dummy'; // Naikkan versi ini untuk force-reset localStorage pada APK baru
 const KAMAR_VERSION='km_v3';
 const KAMAR_PURGE_LOCAL='kamar_purge_local_v1';
 const KAMAR_PURGE_CLOUD='kamar_purge_cloud_v1';
@@ -2167,15 +2080,11 @@ const SAMPLE_KALAM=[
 
 async function seed(){
   const now=Date.now();
-  // Aplikasi baru harus tanpa data kamar contoh/sample — kamar dikosongkan,
-  // biarkan admin menambahkan kamar sendiri sesuai kebutuhan pesantren/asrama.
+  // Clean up any legacy sample kamar data (X 1, X 2, etc.)
   if(!localStorage.getItem(KAMAR_VERSION)){
     await DB.cl('kamar');
     localStorage.setItem(KAMAR_VERSION,'1');
   }
-  // Bersihkan sisa kamar contoh (X 1, X 2, ... dst) yang sempat tersimpan/ke-sync
-  // ke cloud dari versi sebelumnya. Bagian lokal dijalankan sekali saja; bagian
-  // cloud diulang tiap app dibuka sampai berhasil (misal saat pertama kali masih offline).
   const sampleSet=new Set(SAMPLE_KAMAR_NAMES.map(n=>n.toLowerCase()));
   if(!localStorage.getItem(KAMAR_PURGE_LOCAL)){
     try{
@@ -2199,7 +2108,7 @@ async function seed(){
       localStorage.setItem(KAMAR_PURGE_CLOUD,'1');
     }catch(e){}
   }
-  // Seed hadist & kalam ulama motivasi default (hanya sekali, admin bisa edit/tambah/hapus setelahnya)
+  // Seed default kalam/hadist motivasi (admin bisa edit/hapus)
   if(!localStorage.getItem(KALAM_VERSION)){
     const existKalam=await DB.ga('kalam');
     if(!existKalam.length){
@@ -2210,11 +2119,8 @@ async function seed(){
     }
     localStorage.setItem(KALAM_VERSION,'1');
   }
-  // Seed user admin default hanya jika belum ada (dibutuhkan agar bisa login pertama kali)
-  const existUsers=await DB.ga('users');
-  if(!existUsers.length){
-    await DB.p('users',{id:'u_admin',nama:'Admin',role:'musyrifah',pin:'1234',createdAt:now});
-  }
+  // DO NOT create default users here — Phase 11 ensureDefaultAdmins() handles that.
+  // The old 'u_admin' fallback user is removed to prevent dummy data.
 }
 
 // Pilih hadist/kalam untuk ditampilkan hari ini — deterministik berdasarkan tanggal,
@@ -2304,17 +2210,12 @@ async function renderLogin(){
   });
   let ms = users.filter(u => u && u.role === 'musyrifah' && !u.deleted);
 
-  if (!ms.length) {
-    const fallbackUser = {id:'u_admin',nama:'Admin',role:'musyrifah',pin:'1234',createdAt:Date.now(),updatedAt:Date.now(),loginFallback:true};
-    try{
-      await DB.p('users', fallbackUser);
-      users = await DB.ga('users').catch(()=>[fallbackUser]);
-      ms = users.filter(u => u && u.role === 'musyrifah' && !u.deleted);
-      console.warn('[Login] users kosong/tanpa musyrifah, fallback Admin lokal dibuat.');
-    }catch(e){
-      console.warn('[Login] gagal membuat fallback Admin:', e.message||e);
-      ms = [fallbackUser];
-    }
+  // Phase 11 ensureDefaultAdmins() creates 6 role-based admin accounts.
+  // No dummy fallback user is created here anymore.
+  if (!all.length) {
+    await window.PesantrenkuPhase11.ensureDefaultAdmins();
+    users = await DB.ga('users').catch(() => []);
+    all = users.filter(u => u && !u.deleted);
   }
 
   grid.innerHTML = ms.map(u => `
@@ -3254,6 +3155,7 @@ const App={
     S._sesiId=sid;S._skId=skId||null;
     const [sx,abs,snt,ang]=await Promise.all([DB.g('sesi',sid),DB.ga('absensi'),DB.ga('santri'),DB.ga('anggota')]);
     if(!sx){document.getElementById('abs-body').innerHTML='<div class="empty"><div class="es">Sesi tidak ditemukan.</div></div>';return}
+    window._absCurSesi=sx;
     const realSkId=skId||sx.skId||null;
     const angSk=realSkId?ang.filter(a=>a.skId===realSkId):[];
     // Sub-kegiatan: hanya santri yang terdaftar sebagai anggota.
@@ -3309,6 +3211,19 @@ const App={
     document.getElementById('abs-body').innerHTML=`
       <div style="padding:0 15px 9px">
         ${_scheduleHeaderHtml}
+        <!-- Date Navigation (Phase 13) — tampil hanya di Mode Admin -->
+        ${S._adminMode === true ? `<div style="display:flex;align-items:center;gap:8px;background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:8px 12px;margin-bottom:10px;backdrop-filter:blur(20px)">
+          <button onclick="App._absNavDate(-1)" title="Hari sebelumnya" style="width:32px;height:32px;border-radius:50%;background:var(--gs);border:1px solid var(--dv);font-size:14px;font-weight:700;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">←</button>
+          <div style="flex:1;text-align:center;cursor:pointer" onclick="App._absDatePicker()">
+            <div style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--t1)">${this._fmtDate(sx.tanggal)}</div>
+            <div style="font-size:9px;color:var(--t3);margin-top:1px">${sx.tanggal === _todayLocal() ? 'Hari ini' : (sx.tanggal < _todayLocal() ? 'Hari sebelumnya' : 'Hari berikutnya')}</div>
+          </div>
+          <button onclick="App._absNavDate(1)" title="Hari berikutnya" style="width:32px;height:32px;border-radius:50%;background:var(--gs);border:1px solid var(--dv);font-size:14px;font-weight:700;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">→</button>
+          <input type="date" id="abs-date-picker" value="${sx.tanggal}" style="display:none" onchange="App._absGoToDate(this.value)">
+        </div>` : `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--t1)">📅 ${_fmtDate(sx.tanggal)}</div>
+          ${sx.tanggal === _todayLocal() ? '<span class="bd bh3" style="font-size:9px">Hari ini</span>' : ''}
+        </div>`}
         <!-- Catatan Kegiatan — card tanpa label -->
         ${catatan?`<div style="position:relative;background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:9px 36px 9px 11px;margin-bottom:10px;backdrop-filter:blur(20px)">
           <div id="catatan-view" style="font-size:11px;color:var(--t2);line-height:1.55;white-space:pre-wrap;word-break:break-word">${catatan}</div>
@@ -3372,6 +3287,65 @@ const App={
           </div>`}
         </div>
       </div>`;
+  },
+  _fmtDate(d){
+    if(!d)return '-';
+    const months=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    const days=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+    const dt=new Date(d+'T00:00:00');
+    if(isNaN(dt.getTime()))return d;
+    return days[dt.getDay()]+', '+dt.getDate()+' '+months[dt.getMonth()]+' '+dt.getFullYear();
+  },
+  _absDatePicker(){
+    const inp=document.getElementById('abs-date-picker');
+    if(inp){inp.style.display='block';inp.showPicker?.();inp.click();}
+  },
+  _absGoToDate(targetDate){
+    if(!targetDate)return;
+    const sx=window._absCurSesi;
+    if(!sx)return;
+    const kgId=sx.kgId||'';
+    const skId=S._skId||sx.skId||'';
+    const newSid='ses_'+targetDate+'_'+kgId+(skId?'_'+skId:'');
+    this.nav('abs',{sid:newSid,skId:skId||undefined,t:document.getElementById('pt')?.textContent||'Absensi',s:targetDate});
+  },
+  async _absNavDate(dir){
+    const sx=window._absCurSesi;
+    if(!sx)return;
+    const dt=new Date(sx.tanggal+'T00:00:00');
+    if(isNaN(dt.getTime()))return;
+    dt.setDate(dt.getDate()+dir);
+    const y=dt.getFullYear(),m=String(dt.getMonth()+1).padStart(2,'0'),d=String(dt.getDate()).padStart(2,'0');
+    const targetDate=y+'-'+m+'-'+d;
+    const kgId=sx.kgId||'';
+    const skId=S._skId||sx.skId||'';
+    const newSid='ses_'+targetDate+'_'+kgId+(skId?'_'+skId:'');
+    // Check if session exists; if not, create it (only in admin mode)
+    let newSx=await DB.g('sesi',newSid);
+    if(!newSx){
+      if(S._adminMode!==true){T('Aktifkan Mode Admin untuk membuat sesi di tanggal lain.');return;}
+      newSx={id:newSid,tanggal:targetDate,kgId,skId:skId||null,status:'draft',createdAt:Date.now(),locked:false};
+      await DB.p('sesi',newSx);
+      // Create absensi records for members
+      const realSkId=skId||null;
+      const ang=realSkId?(await DB.ga('anggota')).filter(a=>a.skId===realSkId):[];
+      const snt=await DB.ga('santri');
+      const targets=realSkId?snt.filter(x=>ang.find(m=>m.sntId===x.id)&&x.aktif):snt.filter(x=>x.aktif);
+      const izinMap=await this._izinAktifMap(targetDate);
+      const sakitMap=await this._sakitAktifMap(targetDate);
+      const kg=await DB.g('kegiatan',kgId);
+      const sk=realSkId?await DB.g('subKeg',realSkId):null;
+      const isShalat=_isShalatKegiatan(kg?.nama,sk?.nama);
+      const uzurMap=isShalat?await this._uzurAktifMap(targetDate):{};
+      for(const x of targets){
+        let st='none',pid=null,oleh='Sistem';
+        if(sakitMap[x.id]){st='sakit';oleh='Sistem (Catatan Sakit)';}
+        else if(izinMap[x.id]){st='izin';pid=izinMap[x.id];oleh='Sistem (Perizinan)';}
+        else if(isShalat&&uzurMap[x.id]){st='uzur';oleh='Sistem (Uzur)';}
+        await DB.p('absensi',{id:absDetId(newSid,x.id),sesiId:newSid,sntId:x.id,status:st,perizinanId:pid,oleh,updatedAt:Date.now()});
+      }
+    }
+    await this.nav('abs',{sid:newSid,skId:skId||undefined,t:document.getElementById('pt')?.textContent||'Absensi',s:targetDate});
   },
   async filterKm(kamar){
     S.absKamar=kamar;
@@ -5325,7 +5299,24 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
       const barH=Math.max(4,Math.round(64*(a.length/barMax)));
       return`<div class="bar-item"><div class="bar-fill" style="height:${barH}px;background:var(--grad)"></div><div class="bar-lbl">${k?.icon||'📋'}</div><div style="font-size:8px;color:var(--a1);font-weight:700">${pct2}%</div></div>`;
     }).join('');
+    const _rkFmtDate = (d) => {
+      if(!d)return '-';
+      const months=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+      const days=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+      const dt=new Date(d+'T00:00:00');
+      if(isNaN(dt.getTime()))return d;
+      return days[dt.getDay()]+', '+dt.getDate()+' '+months[dt.getMonth()]+' '+dt.getFullYear();
+    };
     let html=`
+      ${S._adminMode === true ? `<div style="display:flex;align-items:center;gap:8px;background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);padding:8px 12px;margin-bottom:9px;backdrop-filter:blur(20px)">
+        <button onclick="App._rkNavDate(-1)" title="Hari sebelumnya" style="width:32px;height:32px;border-radius:50%;background:var(--gs);border:1px solid var(--dv);font-size:14px;font-weight:700;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">←</button>
+        <div style="flex:1;text-align:center;cursor:pointer" onclick="document.getElementById('rk-date-picker').showPicker?.();document.getElementById('rk-date-picker').click()">
+          <div style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--t1)">${_rkFmtDate(S.rkDate)}</div>
+          <div style="font-size:9px;color:var(--t3);margin-top:1px">${S.rkDate === _todayLocal() ? 'Hari ini' : (S.rkDate < _todayLocal() ? 'Hari sebelumnya' : 'Hari berikutnya')}</div>
+        </div>
+        <button onclick="App._rkNavDate(1)" title="Hari berikutnya" style="width:32px;height:32px;border-radius:50%;background:var(--gs);border:1px solid var(--dv);font-size:14px;font-weight:700;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">→</button>
+        <input type="date" id="rk-date-picker" value="${S.rkDate}" style="display:none" onchange="App.rkSelDate(this.value)">
+      </div>` : ''}
       <div class="gc" style="padding:12px;margin-bottom:9px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
           <div style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--t1)">📅 ${S.rkDate}</div>
@@ -5396,7 +5387,10 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
         subHtml+=`<div style="background:var(--gs);border-radius:var(--r2);padding:9px;margin-bottom:5px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
             <div style="font-size:11px;font-weight:700;color:var(--t2)">🔹 ${skItem?.nama||sx.skId}</div>
-            <div style="font-size:10px;font-weight:700;color:var(--a1)">${sp}%</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="font-size:10px;font-weight:700;color:var(--a1)">${sp}%</div>
+              ${S._adminMode === true ? `<button onclick="App._rkEditSubAbsensi('${sx.id}','${sx.skId}')" title="Edit absensi" style="padding:3px 8px;border-radius:100px;background:var(--su);border:1px solid rgba(13,181,127,.18);font-size:9px;font-weight:700;color:var(--a1);cursor:pointer">✏️</button>` : ''}
+            </div>
           </div>${renderNames(sa,sntFresh)}</div>`;
       }
 
@@ -5408,6 +5402,7 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
           <span style="font-size:20px">${k?.icon||'📋'}</span>
           <div style="flex:1"><div style="font-weight:700;font-size:13px;color:var(--t1)">${k?.nama||'-'}</div></div>
           <div style="font-family:var(--fd);font-size:15px;font-weight:900;color:var(--a1)">${kPct}%</div>
+          ${S._adminMode === true ? `<button onclick="App._rkEditAbsensi('${kid}','${S.rkDate}')" title="Edit absensi kegiatan ini" style="padding:5px 10px;border-radius:100px;background:var(--gs);border:1px solid rgba(13,181,127,.18);font-size:10px;font-weight:700;color:var(--a1);cursor:pointer;flex-shrink:0">✏️ Edit</button>` : ''}
         </div>
         <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:8px">
           ${Object.entries(kC).map(([st,n])=>`<div style="background:var(--gs);border-radius:var(--r1);padding:5px 2px;text-align:center"><div style="font-weight:800;font-size:13px;color:var(--t1)">${n}</div><div style="font-size:7px;color:var(--t3)">${st}</div></div>`).join('')}
@@ -5421,6 +5416,25 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
   rkNext(){S.rkMonth++;if(S.rkMonth>11){S.rkMonth=0;S.rkYear++}if(S.rkTab==='harian')this._rkHarian();else this._rkBulanan()},
   async rkSelDate(d){S.rkDate=d;await this._rkHarian()},
   async rkSelKg(id){S.rkKgId=id;await this._rkHarian()},
+  _rkNavDate(dir){
+    const dt=new Date(S.rkDate+'T00:00:00');
+    if(isNaN(dt.getTime()))return;
+    dt.setDate(dt.getDate()+dir);
+    const y=dt.getFullYear(),m=String(dt.getMonth()+1).padStart(2,'0'),d=String(dt.getDate()).padStart(2,'0');
+    S.rkDate=y+'-'+m+'-'+d;
+    S.rkMonth=dt.getMonth();S.rkYear=dt.getFullYear();
+    this._rkHarian();
+  },
+  _rkEditAbsensi(kgId,date){
+    // Navigate to absensi page for this kegiatan on this date
+    // Find or create the main session (no sub)
+    const sid='ses_'+date+'_'+kgId;
+    this.nav('abs',{sid,t:document.getElementById('pt')?.textContent||'Absensi',s:date});
+  },
+  _rkEditSubAbsensi(sesiId,skId){
+    // Navigate directly to the sub-kegiatan absensi page
+    this.nav('abs',{sid:sesiId,skId,t:document.getElementById('pt')?.textContent||'Absensi',s:sesiId});
+  },
 
   _rkStatusGrid(counts,scope,id){
     const statuses=[
@@ -15486,14 +15500,8 @@ window.FBSync = FBSync;
     _norm(v){return String(v||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();},
     _month(){return _todayLocal().slice(0,7);},
     async _ensureAkdPrograms(){
-      const [programs, rec]=await Promise.all([DBRef.ga('academicPrograms').catch(()=>[]),DBRef.ga('academicRecords').catch(()=>[])]);
-      const active=programs.filter(p=>!p.deleted);
-      if(active.length)return active;
-      const names=[...new Set(rec.filter(r=>!r.deleted).map(r=>r.program||r.jenis).filter(Boolean))];
-      const seed=names.length?names:['Sorogan','Al-Quran','Yanbua','Diniyah','Ekstrakurikuler'];
-      const now=Date.now();
-      for(let i=0;i<seed.length;i++)await DBRef.p('academicPrograms',{id:'akd_prog_'+uid(),nama:seed[i],deskripsi:'',aktif:true,urutan:i+1,createdAt:now+i,updatedAt:now+i,oleh:S.user?.nama||'-'});
-      return (await DBRef.ga('academicPrograms')).filter(p=>!p.deleted);
+      const programs=await DBRef.ga('academicPrograms').catch(()=>[]);
+      return programs.filter(p=>!p.deleted);
     },
     _filterList(inputId,listId){const q=this._norm(document.getElementById(inputId)?.value||'');document.querySelectorAll('#'+listId+' [data-search]').forEach(el=>el.style.display=!q||this._norm(el.dataset.search).includes(q)?'':'none');},
     _filterSelect(inputId,selectId){const q=this._norm(document.getElementById(inputId)?.value||'');const sel=document.getElementById(selectId);if(!sel)return;[...sel.options].forEach(o=>o.hidden=q&&!this._norm(o.textContent).includes(q));const cur=sel.options[sel.selectedIndex];if(cur&&cur.hidden){const f=[...sel.options].find(o=>!o.hidden);if(f)sel.value=f.value;}},
@@ -19210,6 +19218,9 @@ window.FBSync = FBSync;
         <div class="sr2" onclick="PesantrenkuPhase12.showThemePicker()">
           <div class="si4">🎨</div><div class="st3"><div class="sl3">Tema Warna</div><div class="sv">${(window.COLOR_THEMES?.find(t => t.id === (localStorage.getItem('color_theme') || 'emerald'))?.name) || 'Emerald'}</div></div><div class="sa">→</div>
         </div>
+        <div class="sr2" onclick="PesantrenkuPhase12.showOrnamentPicker()">
+          <div class="si4">✦</div><div class="st3"><div class="sl3">Ornamen & Pattern</div><div class="sv">${(window.COLOR_ORNAMENTS?.find(o => o.id === (localStorage.getItem('ornament') || 'star'))?.name) || 'Bintang Islamic'}</div></div><div class="sa">→</div>
+        </div>
       </div>
 
       <div class="sec-l" style="margin-bottom:7px">Server & Koneksi</div>
@@ -22100,27 +22111,11 @@ window.FBSync = FBSync;
       </div>
       <div style="margin-top:20px">
         <div class="sec-l" style="margin-bottom:7px;padding:0 3px">Tema Warna</div>
-        <div id="p12-theme-picker" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:8px">
-          <div onclick="PesantrenkuPhase12.previewTheme('emerald',this)" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 4px;border:2px solid var(--a1);border-radius:var(--r2);background:var(--gs)">
-            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#12c290,#c9a227)"></div>
-            <div style="font-size:8px;font-weight:700;color:var(--t1)">Emerald</div>
-          </div>
-          <div onclick="PesantrenkuPhase12.previewTheme('sapphire',this)" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 4px;border:2px solid var(--dv);border-radius:var(--r2)">
-            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#64748b)"></div>
-            <div style="font-size:8px;font-weight:700;color:var(--t3)">Sapphire</div>
-          </div>
-          <div onclick="PesantrenkuPhase12.previewTheme('amethyst',this)" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 4px;border:2px solid var(--dv);border-radius:var(--r2)">
-            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#8b5cf6,#a78bfa)"></div>
-            <div style="font-size:8px;font-weight:700;color:var(--t3)">Amethyst</div>
-          </div>
-          <div onclick="PesantrenkuPhase12.previewTheme('sunset',this)" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 4px;border:2px solid var(--dv);border-radius:var(--r2)">
-            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#f97316,#fbbf24)"></div>
-            <div style="font-size:8px;font-weight:700;color:var(--t3)">Sunset</div>
-          </div>
-          <div onclick="PesantrenkuPhase12.previewTheme('ocean',this)" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 4px;border:2px solid var(--dv);border-radius:var(--r2)">
-            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#06b6d4,#22d3ee)"></div>
-            <div style="font-size:8px;font-weight:700;color:var(--t3)">Ocean</div>
-          </div>
+        <div id="p12-theme-picker" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">
+          ${[['emerald','#5cba94','#b8945e'],['sapphire','#6ba0f5','#94a3b8'],['amethyst','#ab8ef0','#b4a0d4'],['sunset','#f0a868','#e4b87a'],['ocean','#5cc0d4','#7ccfdc'],['rose','#d48898','#d4a0a8'],['forest','#7aa068','#9caa7a'],['indigo','#7888d0','#9098d0'],['sand','#c09860','#c8a878']].map(([id,c1,c2],i) => `<div onclick="PesantrenkuPhase12.previewTheme('${id}',this)" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:6px 4px;border:2px solid ${i===0?'var(--a1)':'var(--dv)'};border-radius:var(--r2);${i===0?'background:var(--gs)':''}">
+            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,${c1},${c2})"></div>
+            <div style="font-size:8px;font-weight:700;color:${i===0?'var(--t1)':'var(--t3)'}">${id.charAt(0).toUpperCase()+id.slice(1)}</div>
+          </div>`).join('')}
         </div>
       </div>
       <button class="bg2 bw" onclick="PesantrenkuPhase12.nextStep()">Lanjut Atur Admin →</button>
@@ -22396,13 +22391,26 @@ window.FBSync = FBSync;
 'use strict';
 (function () {
   const THEMES = [
-    { id: 'emerald', name: 'Emerald', desc: 'Hijau Islamic + Emas', colors: ['#12c290','#0f9d72','#c9a227'] },
-    { id: 'sapphire', name: 'Sapphire', desc: 'Biru + Perak', colors: ['#3b82f6','#2563eb','#64748b'] },
-    { id: 'amethyst', name: 'Amethyst', desc: 'Ungu + Lavender', colors: ['#8b5cf6','#7c3aed','#a78bfa'] },
-    { id: 'sunset', name: 'Sunset', desc: 'Amber + Coral', colors: ['#f97316','#ea580c','#fbbf24'] },
-    { id: 'ocean', name: 'Ocean', desc: 'Teal + Cyan', colors: ['#06b6d4','#0891b2','#22d3ee'] },
+    { id: 'emerald', name: 'Emerald', desc: 'Sage + Warm Gold', colors: ['#5cba94','#4ca888','#b8945e'] },
+    { id: 'sapphire', name: 'Sapphire', desc: 'Sky Blue + Silver', colors: ['#6ba0f5','#5b8def','#94a3b8'] },
+    { id: 'amethyst', name: 'Amethyst', desc: 'Lavender + Mauve', colors: ['#ab8ef0','#9d7ce0','#b4a0d4'] },
+    { id: 'sunset', name: 'Sunset', desc: 'Peach + Buttercream', colors: ['#f0a868','#e8945a','#e4b87a'] },
+    { id: 'ocean', name: 'Ocean', desc: 'Teal + Aqua Mist', colors: ['#5cc0d4','#4ab0c4','#7ccfdc'] },
+    { id: 'rose', name: 'Rose', desc: 'Blush + Antique Rose', colors: ['#d48898','#c87a8a','#d4a0a8'] },
+    { id: 'forest', name: 'Forest', desc: 'Sage + Olive', colors: ['#7aa068','#6b8e5a','#9caa7a'] },
+    { id: 'indigo', name: 'Indigo', desc: 'Indigo + Periwinkle', colors: ['#7888d0','#6878c0','#9098d0'] },
+    { id: 'sand', name: 'Sand', desc: 'Desert + Terracotta', colors: ['#c09860','#b08850','#c8a878'] },
+  ];
+  const ORNAMENTS = [
+    { id: 'star', name: 'Bintang Islamic', icon: '✦' },
+    { id: 'arabesque', name: 'Arabesque', icon: '❀' },
+    { id: 'lattice', name: 'Lattice', icon: '◈' },
+    { id: 'dots', name: 'Titik', icon: '⋮' },
+    { id: 'waves', name: 'Gelombang', icon: '〜' },
+    { id: 'none', name: 'Polos', icon: '□' },
   ];
   window.COLOR_THEMES = THEMES;
+  window.COLOR_ORNAMENTS = ORNAMENTS;
 
   // Apply saved color theme
   window.applyColorTheme = function (themeId) {
@@ -22427,6 +22435,36 @@ window.FBSync = FBSync;
     }).join('');
     OS('<div class="sh">🎨 Tema Warna</div><div class="sb" style="padding-bottom:70px"><div style="font-size:11px;color:var(--t3);margin-bottom:12px;line-height:1.5">Pilih tema warna aplikasi. Tema akan diterapkan ke seluruh aplikasi.</div>' + cards + '</div>');
   };
+  window.PesantrenkuPhase12.showOrnamentPicker = function () {
+    const current = localStorage.getItem('ornament') || 'star';
+    const cards = ORNAMENTS.map(o => {
+      const isActive = o.id === current;
+      return '<div onclick="PesantrenkuPhase12.setOrnament(\'' + o.id + '\')" style="display:flex;align-items:center;gap:10px;padding:12px;border:2px solid ' + (isActive ? 'var(--a1)' : 'var(--dv)') + ';border-radius:var(--r3);margin-bottom:8px;cursor:pointer;background:' + (isActive ? 'var(--gs)' : 'var(--su)') + '">'
+        + '<span style="font-size:20px;width:32px;text-align:center">' + o.icon + '</span>'
+        + '<div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--t1)">' + o.name + '</div></div>'
+        + (isActive ? '<div style="font-size:16px;color:var(--a1)">✓</div>' : '')
+        + '</div>';
+    }).join('');
+    OS('<div class="sh">✦ Ornamen & Pattern</div><div class="sb" style="padding-bottom:70px"><div style="font-size:11px;color:var(--t3);margin-bottom:12px;line-height:1.5">Pilih pola ornamen latar samar. Pola ini tampil sangat halus di seluruh aplikasi.</div>' + cards + '</div>');
+  };
+  window.PesantrenkuPhase12.setOrnament = function (ornamentId) {
+    if (ornamentId === 'star') {
+      document.documentElement.removeAttribute('data-ornament');
+    } else {
+      document.documentElement.setAttribute('data-ornament', ornamentId);
+    }
+    localStorage.setItem('ornament', ornamentId);
+    T('✺ Ornamen diperbarui.');
+    CS();
+  };
+  // Apply saved ornament on load
+  (function(){
+    const o = localStorage.getItem('ornament');
+    if (o && o !== 'star') {
+      if (document.documentElement) document.documentElement.setAttribute('data-ornament', o);
+    }
+  })();
+
   window.PesantrenkuPhase12.setColorTheme = function (themeId) {
     applyColorTheme(themeId);
     T('✅ Tema "' + (THEMES.find(t => t.id === themeId)?.name || themeId) + '" diterapkan.');
