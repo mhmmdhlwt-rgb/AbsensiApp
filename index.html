@@ -1561,7 +1561,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <div id="ls">
   <div class="ls-bg"></div>
   <div class="ls-top">
-    <div class="ls-logo"><img src="icon-192.png" style="width:100%;height:100%;border-radius:24px;object-fit:cover" onerror="this.parentElement.innerHTML='🕌'"></div>
+    <div class="ls-logo" id="ls-logo-wrap"><img src="icon-192.png" style="width:100%;height:100%;border-radius:24px;object-fit:cover" onerror="this.parentElement.innerHTML='🕌'"></div>
     <div class="ls-title" id="ls-title">Pesantrenku</div>
     <div class="ls-sub">Sistem Manajemen Pesantren Modern</div>
   </div>
@@ -1581,7 +1581,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <!-- PILIH PESANTREN/ASRAMA — muncul pertama kali sebelum tenant_ns dipilih -->
 <div id="tenant-picker" style="display:none;position:fixed;inset:0;z-index:9998;background:var(--bg);overflow-y:auto">
   <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:44px 24px 30px">
-    <div id="tp-icon" style="font-size:52px;margin-bottom:10px;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent">&#x1F54C;</div>
+    <div id="tp-icon" style="width:56px;height:56px;border-radius:16px;overflow:hidden;margin-bottom:10px;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 8px 24px rgba(13,181,127,.25)"><img src="icon-192.png" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='🕌';this.parentElement.style.fontSize='52px';this.parentElement.style.display='flex';this.parentElement.style.alignItems='center';this.parentElement.style.justifyContent='center'"></div>
     <div style="font-family:var(--fd);font-size:20px;font-weight:900;color:var(--t1);margin-bottom:4px;text-align:center">Pilih Pesantren / Asrama</div>
     <div style="font-size:12px;color:var(--t3);margin-bottom:14px;text-align:center">Pilih yang sudah terdaftar, atau daftarkan yang baru</div>
     <div id="tp-header-extra" style="margin-bottom:10px;min-height:0"></div>
@@ -1653,7 +1653,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <!-- === SIDEBAR DESKTOP === -->
 <aside id="snav">
   <div id="snav-brand">
-    <div class="snav-logo">🕌</div>
+    <div class="snav-logo" id="snav-logo-wrap" style="overflow:hidden">🕌</div>
     <div style="min-width:0;flex:1">
       <div id="snav-brand-title">Pesantrenku</div>
       <div id="snav-brand-sub">Desktop Edition</div>
@@ -2146,6 +2146,13 @@ async function _applyAsramaName(){
   const lsTitle=document.getElementById('ls-title');if(lsTitle)lsTitle.textContent=appName;
   // Simpan ke S agar dipakai di nav header
   if(typeof S!=='undefined')S._appName=appName;
+  // Load tenant logo for login screen + sidebar
+  const logo=(await DB.g('settings','pesantren_logo').catch(()=>null))?.value||'';
+  const lsLogoWrap=document.getElementById('ls-logo-wrap');
+  const snavLogoWrap=document.getElementById('snav-logo-wrap');
+  const logoHtml=logo?'<img src="'+logo+'" style="width:100%;height:100%;border-radius:12px;object-fit:cover">':'<img src="icon-192.png" style="width:100%;height:100%;border-radius:12px;object-fit:cover" onerror="this.parentElement.textContent=\'🕌\'">';
+  if(lsLogoWrap) lsLogoWrap.innerHTML=logoHtml.replace('border-radius:12px','border-radius:24px');
+  if(snavLogoWrap) snavLogoWrap.innerHTML=logoHtml;
 }
 
 
@@ -6641,8 +6648,8 @@ window.open(url,'_blank');
     const dayNames=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
     const daysArr=Array.isArray(days)?days:[];
     return `<div style="display:flex;gap:8px">
-      <div class="fg" style="flex:1"><label class="fl">Jam Mulai</label><input class="fi" type="time" id="${prefix}-jm" value="${jm||''}"></div>
-      <div class="fg" style="flex:1"><label class="fl">Jam Selesai</label><input class="fi" type="time" id="${prefix}-js" value="${js||''}"></div>
+      <div class="fg" style="flex:1"><label class="fl">Jam Mulai</label><input class="fi" type="time" id="${prefix}-jm" value="${jm||''}" placeholder="HH:MM" style="font-family:monospace" onfocus="if(!this.value && !('showPicker' in HTMLInputElement.prototype))this.type='text'" onblur="this.type='time'"></div>
+      <div class="fg" style="flex:1"><label class="fl">Jam Selesai</label><input class="fi" type="time" id="${prefix}-js" value="${js||''}" placeholder="HH:MM" style="font-family:monospace" onfocus="if(!this.value && !('showPicker' in HTMLInputElement.prototype))this.type='text'" onblur="this.type='time'"></div>
     </div>
     <div class="fg"><label class="fl">Hari Aktif (kosong = setiap hari)</label>
       <div style="display:flex;gap:4px;flex-wrap:wrap" id="${prefix}-days">
@@ -9094,9 +9101,9 @@ window.open(url,'_blank');
         </div>
         <div class="fg"><label class="fl">Jenis Izin</label><select class="fsel" id="izn-tipe" onchange="App._onTipeIzinChange()">${jenis.map(j=>`<option>${j}</option>`).join('')}</select></div>
         <div style="display:flex;gap:8px"><div class="fg" style="flex:1"><label class="fl">Tanggal Mulai</label><input class="fi" type="date" id="izn-mulai" value="${today}"></div>
-        <div class="fg" style="flex:1"><label class="fl">Jam Mulai</label><input class="fi" type="time" id="izn-jam-mulai"></div></div>
+        <div class="fg" style="flex:1"><label class="fl">Jam Mulai</label><input class="fi" type="time" id="izn-jam-mulai" placeholder="HH:MM" style="font-family:monospace"></div></div>
         <div style="display:flex;gap:8px"><div class="fg" style="flex:1"><label class="fl">Tanggal Selesai</label><input class="fi" type="date" id="izn-selesai" value="${today}"></div>
-        <div class="fg" style="flex:1"><label class="fl">Jam Kembali (rencana)</label><input class="fi" type="time" id="izn-jam-kembali"></div></div>
+        <div class="fg" style="flex:1"><label class="fl">Jam Kembali (rencana)</label><input class="fi" type="time" id="izn-jam-kembali" placeholder="HH:MM" style="font-family:monospace"></div></div>
         <div class="fg"><label class="fl">Dijemput / Diantar oleh (opsional)</label><input class="fi" id="izn-penjemput" placeholder="Nama penjemput"></div>
         <div class="fg"><label class="fl">No. Telepon Penjemput (opsional)</label><input class="fi" id="izn-penjemput-telp" type="tel" placeholder="08xxxxxxxxxx"></div>
         <div class="fg"><label class="fl">Alasan / Keterangan</label><textarea class="fi" id="izn-alasan" rows="3" placeholder="Contoh: Ada acara keluarga di kampung..."></textarea></div>
@@ -9257,7 +9264,7 @@ window.open(url,'_blank');
       OS(`<div class="sh">⏰ Perpanjang Waktu Izin</div><div class="sb" style="padding-bottom:80px">
         <div style="background:rgba(245,158,11,.08);border:1.5px solid rgba(245,158,11,.25);border-radius:var(--r3);padding:10px 12px;margin-bottom:14px;font-size:11px;color:#d97706">Santri terlambat kembali. Perpanjang tenggat izin agar status kembali normal.</div>
         <div class="fg"><label class="fl">Tanggal Selesai Baru</label><input class="fi" type="date" id="ext-selesai" value="${per.tglSelesai}"></div>
-        <div class="fg"><label class="fl">Jam Kembali Baru (rencana)</label><input class="fi" type="time" id="ext-jam" value="${per.jamKembali||''}"></div>
+        <div class="fg"><label class="fl">Jam Kembali Baru (rencana)</label><input class="fi" type="time" id="ext-jam" value="${per.jamKembali||''}" placeholder="HH:MM" style="font-family:monospace"></div>
         <button class="bg2 bw" onclick="App._savePerpanjangIzin('${id}')">Simpan Perpanjangan</button>
       </div>`);
     });
@@ -11172,8 +11179,20 @@ const TenantPicker = {
         list.innerHTML=`<div style="text-align:center;padding:20px 0;color:var(--t3);font-size:12px">Belum ada pesantren/asrama terdaftar.<br>Daftarkan yang pertama! 👇</div>`;
         return;
       }
-      list.innerHTML=items.map(it=>{
+      // Fetch tenant logos from Firestore (best effort)
+      const logoPromises = items.map(async (it) => {
+        try {
+          const doc = await _fsDB.collection('tenants').doc(it.id).collection('settings').doc('pesantren_logo').get().catch(() => null);
+          return doc && doc.exists ? (doc.data().value || null) : null;
+        } catch(e) { return null; }
+      });
+      const logos = await Promise.all(logoPromises);
+      list.innerHTML=items.map((it,idx)=>{
         const tipeLabel=it.tipe==='pondok'?'Pondok Pesantren':'Asrama';
+        const tenantLogo=logos[idx];
+        const iconHtml=tenantLogo
+          ?`<img src="${tenantLogo}" style="width:100%;height:100%;border-radius:14px;object-fit:cover">`
+          :`<img src="icon-192.png" style="width:100%;height:100%;border-radius:14px;object-fit:cover" onerror="this.parentElement.textContent='${it.tipe==='pondok'?'🕌':'🏠'}';this.parentElement.style.fontSize='18px';this.parentElement.style.display='flex';this.parentElement.style.alignItems='center';this.parentElement.style.justifyContent='center'">`;
         const saBadge=this._superAdmin?`<span style="font-size:9px;color:#92400e;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.25);padding:1px 6px;border-radius:100px;font-weight:700">SUPER ADMIN</span>`:'';
         const saActions=this._superAdmin?`<div style="display:flex;gap:5px;flex-shrink:0" onclick="event.stopPropagation()">
           <button onclick="TenantPicker._editTenant('${it.id}','${escJ(it.nama)}','${it.tipe||'asrama'}')" title="Edit" style="width:30px;height:30px;border-radius:9px;background:rgba(13,181,127,.1);border:1.5px solid rgba(13,181,127,.25);color:var(--a1);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center">✎</button>
@@ -11182,7 +11201,7 @@ const TenantPicker = {
         const clickHandler=this._superAdmin?'':`onclick="TenantPicker.select('${it.id}','${escJ(it.nama)}','${it.tipe||'asrama'}')"`;
         const cursorStyle=this._superAdmin?'cursor:default':'cursor:pointer';
         return `<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--su);border:1.5px solid var(--sub);border-radius:var(--r4);${cursorStyle};backdrop-filter:blur(20px)" ${clickHandler}>
-          <div style="width:42px;height:42px;border-radius:14px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;overflow:hidden"><img src="icon-192.png" style="width:100%;height:100%;border-radius:14px;object-fit:cover" onerror="this.style.display='none';this.parentElement.textContent='${it.tipe==='pondok'?'🕌':'🏠'}'"></div>
+          <div style="width:42px;height:42px;border-radius:14px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;overflow:hidden">${iconHtml}</div>
           <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><div style="font-weight:800;font-size:14px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.nama)}</div>${saBadge}</div><div style="font-size:10px;color:var(--t3);margin-top:1px">${tipeLabel}</div></div>
           ${saActions}
           ${!this._superAdmin?`<div style="color:var(--t3);font-size:16px">→</div>`:''}
@@ -17095,7 +17114,7 @@ window.FBSync = FBSync;
       return;
     }
     if (type === 'perizinan') {
-      box.innerHTML = `${picker}<div class="phase7-two"><div class="fg"><label class="fl">Tanggal Mulai</label><input class="fi" id="qnote-start" type="date" value="${todayLocal()}"></div><div class="fg"><label class="fl">Tanggal Kembali</label><input class="fi" id="qnote-end" type="date" value="${todayLocal()}"></div></div><div class="phase7-two"><div class="fg"><label class="fl">Jam Mulai</label><input class="fi" id="qnote-jam-start" type="time"></div><div class="fg"><label class="fl">Jam Kembali</label><input class="fi" id="qnote-jam-end" type="time"></div></div><div class="fg"><label class="fl">Jenis Izin</label><input class="fi" id="qnote-title" value="Izin"></div><div class="fg"><label class="fl">Alasan / Keterangan</label><textarea class="fi" id="qnote-isi" style="height:96px;resize:none"></textarea></div>`;
+      box.innerHTML = `${picker}<div class="phase7-two"><div class="fg"><label class="fl">Tanggal Mulai</label><input class="fi" id="qnote-start" type="date" value="${todayLocal()}"></div><div class="fg"><label class="fl">Tanggal Kembali</label><input class="fi" id="qnote-end" type="date" value="${todayLocal()}"></div></div><div class="phase7-two"><div class="fg"><label class="fl">Jam Mulai</label><input class="fi" id="qnote-jam-start" type="time" placeholder="HH:MM" style="font-family:monospace"></div><div class="fg"><label class="fl">Jam Kembali</label><input class="fi" id="qnote-jam-end" type="time" placeholder="HH:MM" style="font-family:monospace"></div></div><div class="fg"><label class="fl">Jenis Izin</label><input class="fi" id="qnote-title" value="Izin"></div><div class="fg"><label class="fl">Alasan / Keterangan</label><textarea class="fi" id="qnote-isi" style="height:96px;resize:none"></textarea></div>`;
       await fillQuickSantri();
       return;
     }
