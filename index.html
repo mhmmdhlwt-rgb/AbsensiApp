@@ -1776,9 +1776,11 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 <script>
 'use strict';
 const DB=(()=>{
-  let _d;const N='AssalamV5',V=13;
+  // V14 menambah indeks tanggal sesi. Riwayat absensi lama tetap utuh;
+  // IndexedDB hanya membangun indeks saat upgrade sekali.
+  let _d;const N='AssalamV5',V=14;
   const ST=['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','settings','users','kamar','catatanSantri','pelanggaran','peraturan','kalam','perizinan','uzur','catatanSakit','academicRecords','academicTargets','academicPrograms','academicEvaluations','financeBills','financePayments','qrScanLogs','hafalanTargets','hafalanProgress','cashflow','diniyahKelas','diniyahMapel','academicYears','diniyahPenempatan','rapotNilai','syncQueue'];
-  function open(){return new Promise((res,rej)=>{if(_d)return res(_d);const r=indexedDB.open(N,V);r.onupgradeneeded=e=>{const d=e.target.result;ST.forEach(s=>{if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:'id'})});const abs=e.target.transaction.objectStore('absensi');if(!abs.indexNames.contains('sesiId'))abs.createIndex('sesiId','sesiId',{unique:false})};r.onsuccess=e=>{_d=e.target.result;res(_d)};r.onerror=e=>rej(e.target.error)})}
+  function open(){return new Promise((res,rej)=>{if(_d)return res(_d);const r=indexedDB.open(N,V);r.onupgradeneeded=e=>{const d=e.target.result;ST.forEach(s=>{if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:'id'})});const abs=e.target.transaction.objectStore('absensi');if(!abs.indexNames.contains('sesiId'))abs.createIndex('sesiId','sesiId',{unique:false});const sesi=e.target.transaction.objectStore('sesi');if(!sesi.indexNames.contains('tanggal'))sesi.createIndex('tanggal','tanggal',{unique:false})};r.onsuccess=e=>{_d=e.target.result;res(_d)};r.onerror=e=>rej(e.target.error)})}
   const tx=(s,m='readonly')=>_d.transaction(s,m).objectStore(s);
   // ── AUDIT v3f: MEMORY CACHE untuk data jarang berubah ──
   // Cache in-memory untuk store yang jarang berubah: santri, kamar, kegiatan,
@@ -1830,6 +1832,18 @@ const DB=(()=>{
       r.onerror=()=>rej(r.error);
     });
   }
+  // Baca rentang indeks tanpa memuat seluruh store. Dipakai untuk rekap
+  // bulanan agar riwayat beberapa tahun tidak ikut dipindai tiap buka tab.
+  async function range(s,index,from,to){
+    await open();
+    return new Promise((res,rej)=>{
+      const store=tx(s);
+      if(!store.indexNames.contains(index)){res([]);return;}
+      const r=store.index(index).getAll(IDBKeyRange.bound(from,to));
+      r.onsuccess=()=>res(r.result);
+      r.onerror=()=>rej(r.error);
+    });
+  }
   async function p(s,o){
     await open();
     return new Promise((res,rej)=>{
@@ -1869,7 +1883,7 @@ const DB=(()=>{
     if (s) delete _memCache[s];
     else Object.keys(_memCache).forEach(k => delete _memCache[k]);
   }
-  return{open,ga,g,by,p,d,cl,invalidateCache};
+  return{open,ga,g,by,range,p,d,cl,invalidateCache};
 })();
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
 // BUG FIX (root cause of "bentrok data antar device" & jumlah santri di
@@ -2085,66 +2099,22 @@ const SAMPLE_KALAM=[
   {teks:'Barangsiapa bersungguh-sungguh, pasti ia akan mendapatkan apa yang diinginkannya.',author:'Kalam Ulama (Man Jadda Wajada)',tipe:'kalam'},
 ];
 
-// Auto-clear localStorage jika versi APK berubah (fresh install)
-// Tetap pertahankan pilihan pesantren (tenant_ns/nama/tipe) supaya user
-// tidak perlu memilih pesantren lagi setiap update APK.
+// Update aplikasi tidak boleh menghapus state lokal pengguna. Pembersihan
+// otomatis sebelumnya menghapus marker lalu memicu seed yang dapat memutasi
+// data tenant saat perangkat pertama kali membuka versi baru.
 (function(){
   const saved = localStorage.getItem('app_version');
   if(saved !== APP_VERSION) {
-    const keysToKeep = ['tenant_ns','tenant_nama','tenant_tipe'];
-    const keepVals = {};
-    keysToKeep.forEach(k => { if(localStorage.getItem(k)) keepVals[k] = localStorage.getItem(k); });
-    const allKeys = Object.keys(localStorage);
-    allKeys.forEach(k => { if(!keysToKeep.includes(k)) localStorage.removeItem(k); });
-    Object.keys(keepVals).forEach(k => localStorage.setItem(k, keepVals[k]));
     localStorage.setItem('app_version', APP_VERSION);
-    console.log('[App] Fresh install v'+APP_VERSION+' — localStorage cleared (tenant preserved)');
+    console.log('[App] Version updated to '+APP_VERSION+' — local state preserved');
   }
 })();
 
 async function seed(){
-  const now=Date.now();
-  // Clean up any legacy sample kamar data (X 1, X 2, etc.)
-  if(!localStorage.getItem(KAMAR_VERSION)){
-    await DB.cl('kamar');
-    localStorage.setItem(KAMAR_VERSION,'1');
-  }
-  const sampleSet=new Set(SAMPLE_KAMAR_NAMES.map(n=>n.toLowerCase()));
-  if(!localStorage.getItem(KAMAR_PURGE_LOCAL)){
-    try{
-      const allKm=await DB.ga('kamar');
-      for(const k of allKm){
-        if(sampleSet.has(String(k.nama||'').trim().toLowerCase()))await DB.d('kamar',k.id);
-      }
-    }catch(e){}
-    localStorage.setItem(KAMAR_PURGE_LOCAL,'1');
-  }
-  if(!localStorage.getItem(KAMAR_PURGE_CLOUD)&&navigator.onLine){
-    try{
-      const fbKm=await _fbFetch('/kamar').catch(()=>null);
-      if(fbKm&&typeof fbKm==='object'){
-        for(const [fid,fx] of Object.entries(fbKm)){
-          if(fx&&sampleSet.has(String(fx.nama||'').trim().toLowerCase())){
-            await _fbFetch('/kamar/'+fid,'DELETE').catch(()=>{});
-          }
-        }
-      }
-      localStorage.setItem(KAMAR_PURGE_CLOUD,'1');
-    }catch(e){}
-  }
-  // Seed default kalam/hadist motivasi (admin bisa edit/hapus)
-  if(!localStorage.getItem(KALAM_VERSION)){
-    const existKalam=await DB.ga('kalam');
-    if(!existKalam.length){
-      for(let i=0;i<SAMPLE_KALAM.length;i++){
-        const x=SAMPLE_KALAM[i];
-        await DB.p('kalam',{id:'kalam_seed_'+i,teks:x.teks,author:x.author,tipe:x.tipe,createdAt:now+i});
-      }
-    }
-    localStorage.setItem(KALAM_VERSION,'1');
-  }
-  // DO NOT create default users here — Phase 11 ensureDefaultAdmins() handles that.
-  // The old 'u_admin' fallback user is removed to prevent dummy data.
+  // Startup harus read-only terhadap data tenant. Seed/purge otomatis lama
+  // dapat menghapus kamar atau menulis data contoh sebelum perangkat selesai
+  // menerima cloud state. Data awal hanya dibuat dari onboarding eksplisit.
+  return;
 }
 
 // Pilih hadist/kalam untuk ditampilkan hari ini — deterministik berdasarkan tanggal,
@@ -2240,14 +2210,12 @@ async function renderLogin(){
     return [];
   });
   let ms = users.filter(u => u && u.role === 'musyrifah' && !u.deleted);
+  let all = users.filter(u => u && !u.deleted);
 
   // Phase 11 ensureDefaultAdmins() creates 6 role-based admin accounts.
   // No dummy fallback user is created here anymore.
-  if (!all.length) {
-    await window.PesantrenkuPhase11.ensureDefaultAdmins();
-    users = await DB.ga('users').catch(() => []);
-    all = users.filter(u => u && !u.deleted);
-  }
+  // Jangan membuat akun dari layar login: perangkat baru mungkin belum
+  // selesai menerima daftar users cloud. Seed hanya dilakukan onboarding.
 
   grid.innerHTML = ms.map(u => `
     <div class="ls-card" onclick="App.loginUser('${u.id}')">
@@ -2699,14 +2667,14 @@ const App={
       // Render pakai data cache
       return this._renderDash(c.snt, c.ses, c.abs, c.kg, c.sk, c.kalamList, c.per, c.pel, c.uzurAll, c.sakitAllDash, c.ang||[]);
     }
+    const todayForDash=_todayLocal();
     const [snt,ses,kg,sk,kalamList,per,pel,uzurAll,sakitAllDash,ang]=await Promise.all([
-      DB.ga('santri'),DB.ga('sesi'),DB.ga('kegiatan'),DB.ga('subKeg'),DB.ga('kalam'),
+      DB.ga('santri'),DB.by ? DB.by('sesi','tanggal',todayForDash) : DB.ga('sesi').then(xs=>xs.filter(x=>x.tanggal===todayForDash)),DB.ga('kegiatan'),DB.ga('subKeg'),DB.ga('kalam'),
       DB.ga('perizinan'),DB.ga('pelanggaran'),DB.ga('uzur').catch(()=>[]),
       DB.ga('catatanSakit').catch(()=>[]),DB.ga('anggota')
     ]);
     // Dashboard hanya menghitung sesi hari ini. Membaca seluruh riwayat
     // absensi setiap re-render membuat tenant lama terlihat macet.
-    const todayForDash=_todayLocal();
     const todaySessions=ses.filter(x=>x.tanggal===todayForDash);
     const abs=(await Promise.all(todaySessions.map(sx=>
       DB.by ? DB.by('absensi','sesiId',sx.id) : DB.ga('absensi').then(all=>all.filter(a=>a.sesiId===sx.id))
@@ -5443,15 +5411,20 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
         })
         .catch(e=>console.warn('[Rekap] targeted history pull error:',e));
     }
-    // Filter data bulan ini dari IDB (instant, zero Reads).
-    const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg')]);
+    // Ambil sesi bulan yang dipilih saja. Sebelumnya DB.ga('sesi') memindai
+    // seluruh riwayat tenant setiap membuka kalender rekap.
+    const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
+    const [kg,sesAll,snt,sk]=await Promise.all([
+      DB.ga('kegiatan'),
+      DB.range ? DB.range('sesi','tanggal',monthPfx+'-01',monthPfx+'-31') : DB.ga('sesi').then(xs=>xs.filter(x=>x.tanggal?.startsWith(monthPfx))),
+      DB.ga('santri'),DB.ga('subKeg')
+    ]);
     const aktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
     const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
     const first=new Date(S.rkYear,S.rkMonth,1).getDay();
     const dim=new Date(S.rkYear,S.rkMonth+1,0).getDate();
     const today=_todayLocal();
     const dn=['M','S','S','R','K','J','S'];
-    const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
     // Dates with any absensi data this month
     const datesWithData=new Set(sesAll.filter(x=>x.tanggal.startsWith(monthPfx)).map(x=>x.tanggal));
     let calH=dn.map(d=>`<div class="cdh">${d}</div>`).join('');
@@ -5472,45 +5445,39 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
         <div class="cg2">${calH}</div>
       </div>
       <div id="rk-res"></div>`;
-    await this._rkHarianLoad(sesAll,absAll,snt,sk,kg);
+    await this._rkHarianLoad(sesAll,[],snt,sk,kg);
   },
   async _rkHarianLoad(sesAll,absAll,snt,sk,kg){
-    // Selalu load fresh untuk pastikan data terbaru setelah repair
-    [sesAll,absAll,snt,sk,kg]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg'),DB.ga('kegiatan')]);
+    // Rekap harian hanya membaca attendance milik sesi pada tanggal yang
+    // dipilih. Membaca seluruh riwayat di IndexedDB membuat tab rekap lambat
+    // pada tenant lama, bahkan saat pengguna hanya membuka satu hari.
+    // Data bulan telah disiapkan oleh _rkHarian. Jangan baca ulang semua sesi
+    // historis hanya untuk merender satu tanggal.
+    if(!Array.isArray(sesAll)) sesAll=await (DB.by ? DB.by('sesi','tanggal',S.rkDate) : DB.ga('sesi'));
+    if(!Array.isArray(snt)) snt=await DB.ga('santri');
+    if(!Array.isArray(sk)) sk=await DB.ga('subKeg');
+    if(!Array.isArray(kg)) kg=await DB.ga('kegiatan');
     const el=document.getElementById('rk-res');if(!el)return;
     const allSes=sesAll.filter(x=>x.tanggal===S.rkDate);
     if(!allSes.length){el.innerHTML='<div class="empty" style="padding:20px 0"><div class="es">Tidak ada sesi pada tanggal ini.</div></div>';return}
+    const attendanceGroups=await Promise.all(allSes.map(sx=>DB.by ? DB.by('absensi','sesiId',sx.id) : DB.ga('absensi').then(all=>all.filter(a=>a.sesiId===sx.id))));
+    absAll=attendanceGroups.flat();
 
-    // REPAIR PASS: pastikan semua sesi punya absensi LENGKAP sebelum render
-    const allSntAktif=snt.filter(x=>x.aktif);
-    const angAll=await DB.ga('anggota');
-    let repaired=false;
+    // `none` yang belum mempunyai dokumen tetap virtual saat rekap. Rekap
+    // adalah pembaca; ia tidak boleh membuat ratusan write hanya karena dibuka.
+    const [sntFresh,angAll]=await Promise.all([Promise.resolve(snt),DB.ga('anggota')]);
+    const activeSantri=sntFresh.filter(x=>x.aktif);
     for(const sx of allSes){
-      // Sub-kegiatan: hanya anggota. Kegiatan induk: semua santri aktif.
       const targets=sx.skId
-        ? allSntAktif.filter(x=>angAll.find(m=>m.skId===sx.skId&&m.sntId===x.id))
-        : allSntAktif;
-      const existingIds=new Set(absAll.filter(a=>a.sesiId===sx.id).map(a=>a.sntId));
-      const missing=targets.filter(x=>!existingIds.has(x.id));
-      if(missing.length>0){
-        const _izinMapRep2=await this._izinAktifMap(sx.tanggal);
-        const _sakitMapRep2=await this._sakitAktifMap(sx.tanggal);
-        for(const x of missing){
-          const _st=_sakitMapRep2[x.id]?'sakit':(_izinMapRep2[x.id]?'izin':'none');
-          const _pid=_izinMapRep2[x.id]||null;
-          const _oleh=_sakitMapRep2[x.id]?'Sistem (Catatan Sakit)':(_izinMapRep2[x.id]?'Sistem (Perizinan)':'-');
-          const na={id:absDetId(sx.id,x.id),sesiId:sx.id,sntId:x.id,status:_st,perizinanId:_pid,oleh:_oleh,updatedAt:Date.now()};
-          await DB.p('absensi',na);
-          absAll.push(na);
-        }
-        repaired=true;
+        ? activeSantri.filter(x=>angAll.some(m=>m.skId===sx.skId&&m.sntId===x.id))
+        : activeSantri;
+      const existing=new Set(absAll.filter(a=>a.sesiId===sx.id).map(a=>a.sntId));
+      for(const target of targets){
+        if(!existing.has(target.id)) absAll.push({id:absDetId(sx.id,target.id),sesiId:sx.id,sntId:target.id,status:'none',_virtual:true});
       }
     }
-    // Reload absAll fresh setelah repair agar semua data konsisten
-    if(repaired) absAll=await DB.ga('absensi');
 
-    // Build maps setelah repair — selalu reload snt fresh agar sntM lengkap
-    const sntFresh=await DB.ga('santri');
+    // Build maps tanpa write ke database.
     const sntM=mapBy(sntFresh,'id'),skM=mapBy(sk,'id'),kgM=mapBy(kg,'id'),allSesM=mapBy(allSes,'id');
     const effectiveStatus=a=>getEffectiveAttendanceStatus(a,allSesM[a.sesiId]);
     const kgGroups={};
@@ -5689,11 +5656,17 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
   async _rkBulananStatusPop(status,scope,id){
     const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
     const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-    const [sesAll,absAll,snt,kg,sk]=await Promise.all([DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg')]);
+    const [sesAll,snt,kg,sk]=await Promise.all([
+      DB.range ? DB.range('sesi','tanggal',monthPfx+'-01',monthPfx+'-31') : DB.ga('sesi').then(xs=>xs.filter(x=>x.tanggal?.startsWith(monthPfx))),
+      DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg')
+    ]);
     const sntM=mapBy(snt,'id'),kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
     const monSes=sesAll.filter(x=>x.tanggal&&x.tanggal.startsWith(monthPfx)).filter(x=>scope==='all'?true:(scope==='kg'?x.kgId===id:x.skId===id));
     const sesIds=new Set(monSes.map(x=>x.id));
     const monSesM=mapBy(monSes,'id');
+    const absAll=(await Promise.all(monSes.map(sx=>
+      DB.by ? DB.by('absensi','sesiId',sx.id) : DB.ga('absensi').then(xs=>xs.filter(a=>a.sesiId===sx.id))
+    ))).flat();
     const counts={};
     absAll.filter(a=>sesIds.has(a.sesiId)&&getEffectiveAttendanceStatus(a,monSesM[a.sesiId])===status).forEach(a=>{counts[a.sntId]=(counts[a.sntId]||0)+1});
     const rows=Object.entries(counts).map(([sntId,n])=>({s:sntM[sntId],n})).filter(x=>x.s).sort((a,b)=>b.n-a.n||a.s.nama.localeCompare(b.s.nama,'id'));
@@ -5712,18 +5685,32 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
   async _rkBulanan(){
     const loadingEl=document.getElementById('rk-ct');
     if(navigator.onLine && FBSync.pullRekapMonthFull){
-      if(loadingEl)loadingEl.innerHTML='<div class="empty" style="padding:32px 0"><div class="es">Memuat seluruh data rekap bulan terpilih…</div></div>';
-      try{await FBSync.pullRekapMonthFull(S.rkYear,S.rkMonth);}
-      catch(e){console.warn('[Rekap] monthly history pull error:',e);T('⚠️ Data bulan ini belum lengkap dari cloud. Coba lagi saat koneksi stabil.',4500);}
+      // Tampilkan cache bulan yang ada dulu. Full reconciliation tetap
+      // berjalan targeted di belakang layar agar tab tidak blank lama.
+      const viewYear=S.rkYear,viewMonth=S.rkMonth;
+      FBSync.pullRekapMonthFull(viewYear,viewMonth)
+        .then(changed=>{
+          if(changed && S.page==='rek' && S.rkTab==='bulanan' && S.rkYear===viewYear && S.rkMonth===viewMonth) this._rkBulanan();
+        })
+        .catch(e=>{console.warn('[Rekap] monthly history pull error:',e);T('⚠️ Data bulan ini belum lengkap dari cloud. Coba lagi saat koneksi stabil.',4500);});
     }
-    const [kg,sesAll,absAll,snt,sk]=await Promise.all([DB.ga('kegiatan'),DB.ga('sesi'),DB.ga('absensi'),DB.ga('santri'),DB.ga('subKeg')]);
+    const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
+    // Rekap bulanan hanya membutuhkan sesi dan absensi bulan terpilih.
+    // DB.ga('absensi') di sini sebelumnya memuat seluruh riwayat absensi dan
+    // menjadi penyebab utama tab bulanan lambat pada tenant lama.
+    const [kg,sesAll,snt,sk]=await Promise.all([
+      DB.ga('kegiatan'),
+      DB.range ? DB.range('sesi','tanggal',monthPfx+'-01',monthPfx+'-31') : DB.ga('sesi').then(xs=>xs.filter(x=>x.tanggal?.startsWith(monthPfx))),
+      DB.ga('santri'),DB.ga('subKeg')
+    ]);
     const aktif=kg.filter(x=>x.aktif!==false).sort((a,b)=>a.urutan-b.urutan);
     const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-    const monthPfx=`${S.rkYear}-${String(S.rkMonth+1).padStart(2,'0')}`;
     const monSes=sesAll.filter(x=>x.tanggal.startsWith(monthPfx));
     const monSesM=mapBy(monSes,'id');
     const effectiveStatus=a=>getEffectiveAttendanceStatus(a,monSesM[a.sesiId]);
-    const monAbs=absAll.filter(a=>monSesM[a.sesiId]&&effectiveStatus(a)!=='none');
+    const monAbs=(await Promise.all(monSes.map(sx=>
+      DB.by ? DB.by('absensi','sesiId',sx.id) : DB.ga('absensi').then(xs=>xs.filter(a=>a.sesiId===sx.id))
+    ))).flat().filter(a=>effectiveStatus(a)!=='none');
     const sntM=mapBy(snt,'id'),skM=mapBy(sk,'id');
     const totC={hadir:0,alpha:0,izin:0,sakit:0,terlambat:0,uzur:0};
     monAbs.forEach(a=>{const st=effectiveStatus(a);if(totC[st]!==undefined)totC[st]++});
@@ -11774,10 +11761,9 @@ document.addEventListener('touchend',e=>{if(!_tc)return;const dx=e.changedTouche
 window.addEventListener('offline',()=>T('\uD83D\uDCF4 Offline \u2014 data tersimpan lokal'));
 window.addEventListener('online',()=>T('\u2705 Online kembali'));
 
-if('serviceWorker' in navigator){
-  const sw=`const C='av3';self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
-  navigator.serviceWorker.register(URL.createObjectURL(new Blob([sw],{type:'application/javascript'}))).catch(()=>{});
-}
+// Service worker didaftarkan satu kali oleh setup PWA kanonis di bawah.
+// Jangan membuat worker Blob kedua: ia dapat mengambil alih cache/controller
+// dengan versi berbeda dan memicu lifecycle reload yang tidak konsisten.
 
 async function loginUser(uid){
   PIN.show('Masukkan PIN','Login musyrifah','v',uid,async(ok,user)=>{
@@ -11870,6 +11856,10 @@ const Wiz = {
         await _fbFetch('/settings/asrama','PUT',{id:'asrama',value:namaRaw,_ts:Date.now()}).catch(()=>{});
         await _fbFetch('/settings/lembaga_tipe','PUT',{id:'lembaga_tipe',value:this._tipe,_ts:Date.now()}).catch(()=>{});
       }
+      // Wizard tenant baru tidak reload halaman. Lepaskan mode perpindahan
+      // tenant agar write settings/onboarding yang sudah local-first segera
+      // direkonsiliasi lalu dikirim ke namespace tenant baru.
+      await FBSync.completeTenantBootstrap();
       document.getElementById('setup-wiz').style.display='none';
       await _applyAsramaName();
       await renderLogin();
@@ -12172,7 +12162,6 @@ async function init(){
 
   try{
     if(!ns){await TenantPicker.show();return;}
-    setTimeout(()=>_deduplicateAll().catch(()=>{}),3000);
     await renderLogin();
   }catch(e){
     console.warn('[init] render login fallback:',e);
@@ -14379,16 +14368,9 @@ document.addEventListener('DOMContentLoaded',init);
 // ═══════════════════════════════════════════════════════════════
 // PWA: Register Service Worker + Install Prompt
 // ═══════════════════════════════════════════════════════════════
-// ── AUDIT FIX: Tambah update mechanism (skipWaiting + toast reload) ──
-// Sebelumnya, saat SW baru di-deploy, user lama tetap di versi lama
-// sampai mereka tutup SEMUA tab aplikasi. Sekarang:
-//   1. register SW dengan updateViaCache:'none' supaya selalu cek SW baru
-//      lewat network (bukan cache HTTP).
-//   2. listen 'controllerchange' → tampilkan toast "Versi baru siap,
-//      reload?". User bisa pilih reload sekarang atau nanti.
-//   3. listen 'updatefound' → jika SW baru mulai installing, tunggu
-//      'statechange' ke 'installed' lalu kirim postMessage('SKIP_WAITING')
-//      supaya SW baru langsung aktif tanpa menunggu semua tab tutup.
+// Pembaruan PWA tidak boleh me-reload halaman yang sedang dipakai secara
+// otomatis. Admin bisa sedang mengisi absensi atau membaca rekap; update baru
+// cukup ditandai dan akan aktif pada refresh/kunjungan berikutnya.
 (function _pwaSetup(){
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -14399,25 +14381,20 @@ document.addEventListener('DOMContentLoaded',init);
           if (!newWorker) return;
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // SW baru siap. Kirim SKIP_WAITING supaya langsung aktif.
-              newWorker.postMessage('SKIP_WAITING');
-              // Tampilkan toast ke user (jika fungsi T tersedia).
+              // Jangan SKIP_WAITING atau reload otomatis: keduanya memutus
+              // sesi aktif dan dapat mengembalikan scroll/form ke awal.
               if (window.T) {
-                T('🔄 Versi baru siap. Muat ulang untuk mengaktifkan.', 8000);
+                T('🔄 Pembaruan siap. Akan digunakan saat aplikasi dibuka ulang.', 5000);
               }
             }
           });
         });
       }).catch(err => console.warn('[PWA] SW registration failed:', err));
-      // Saat controller berganti (SW baru aktif), reload sekali supaya
-      // semua aset baru termuat. Cek apakah sudah pernah reload — kalau
-      // tidak, akan terjadi reload loop.
-      let _reloaded = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (_reloaded) return;
-        _reloaded = true;
-        // Delay sedikit supaya SW sempat claim clients.
-        setTimeout(() => location.reload(), 300);
+        // Perubahan controller dapat terjadi saat tab aktif. Jangan memaksa
+        // location.reload(); sesi sekarang tetap stabil sampai user memilih
+        // refresh sendiri.
+        console.info('[PWA] Service Worker controller changed; reload deferred.');
       });
     });
   }
@@ -14815,6 +14792,10 @@ const FBSync = (() => {
   let _reconnectRetryAttempt = 0;
   let _queueWatchdog = null;
   let _tenantSwitching = false;
+  // Membatalkan fase reconcile yang masih berjalan saat pengguna memilih
+  // tenant lain. Queue sudah dipersist per tenant; ia tidak perlu menahan
+  // pengguna di layar pemilih tenant.
+  let _switchEpoch = 0;
 
   function _inferAttendanceSource(abs) {
     if (abs?.source) return abs.source;
@@ -14925,7 +14906,9 @@ const FBSync = (() => {
     // Dedup queue: jika ada entry yang sama store+id, hapus yang lama
     const eid = obj ? obj.id : id;
     const tenantNs = _fbNs();
-    _wq = _wq.filter(x => !(x.store === store && x.id === eid));
+    // Namespace adalah bagian dari identitas queue. Dokumen dengan id sama
+    // pada tenant berbeda tidak boleh saling menyingkirkan dari antrean.
+    _wq = _wq.filter(x => !((x.tenantNs || tenantNs) === tenantNs && x.store === store && x.id === eid));
     if (op === 'del') {
       // Push tombstone sebagai operasi 'set' — PATCH merge ke FB
       // ── FASE 2 AUDIT FIX: Sertakan metadata kontekstual di tombstone ──
@@ -14977,15 +14960,21 @@ const FBSync = (() => {
   // jendela debounce dapat menghilangkan satu attendance yang sudah terlihat
   // lokal. Snapshot dipakai agar write IDB selalu merekam state queue saat
   // mutasi terjadi, bukan state yang mungkin sudah berubah ketika async jalan.
-  function _persistQueue() {
-    const items = _wq.map(item => Object.assign({}, item, item.obj ? {obj: Object.assign({}, item.obj)} : {}));
-    const queueId = '_fb_queue:' + _fbNs();
+  function _persistQueue(tenantNs=_fbNs()) {
+    // Tangkap namespace saat fungsi dipanggil. Jangan membaca localStorage di
+    // callback async karena pengguna dapat berpindah tenant sebelum write IDB
+    // selesai, yang sebelumnya berisiko menyimpan antrean pada tenant salah.
+    const queueTenant = tenantNs || _fbNs();
+    const items = _wq
+      .filter(item => (item.tenantNs || queueTenant) === queueTenant)
+      .map(item => Object.assign({}, item, item.obj ? {obj: Object.assign({}, item.obj)} : {}));
+    const queueId = '_fb_queue:' + queueTenant;
     _queuePersistChain = _queuePersistChain.catch(() => {}).then(async () => {
       if (!_origP) throw new Error('Queue persistence belum siap');
       // Queue disimpan di store internal terpisah per tenant. Store ini tidak
       // ikut dibersihkan saat admin pindah tenant, sehingga pending write
       // tenant lama tetap dapat dipulihkan dengan namespace yang benar.
-      await _origP('syncQueue', {id: queueId, tenantNs:_fbNs(), items, ts: Date.now()});
+      await _origP('syncQueue', {id: queueId, tenantNs:queueTenant, items, ts: Date.now()});
     });
     return _queuePersistChain;
   }
@@ -15004,11 +14993,11 @@ const FBSync = (() => {
       if (rec && Array.isArray(rec.items) && rec.items.length) {
         // Merge by store+id. Jika ada dua versi, simpan item terakhir agar
         // perubahan paling baru tidak dikalahkan snapshot startup yang lama.
-        const existing = new Map(_wq.map(x => [x.store + '|' + x.id, x]));
+        const existing = new Map(_wq.map(x => [(x.tenantNs || tenantNs) + '|' + x.store + '|' + x.id, x]));
         for (const rawItem of rec.items) {
           const item = Object.assign({}, rawItem, {tenantNs: rawItem.tenantNs || tenantNs});
           if (item.tenantNs !== tenantNs) continue;
-          const key = item.store + '|' + item.id;
+          const key = item.tenantNs + '|' + item.store + '|' + item.id;
           const current = existing.get(key);
           if (!current || (item.ts || 0) > (current.ts || 0)) existing.set(key, item);
         }
@@ -15020,8 +15009,23 @@ const FBSync = (() => {
       }
     } catch(e) { console.warn('[FBSync] load queue error:', e); }
   }
-  async function _clearPersistedQueue() {
-    try { await _persistQueue(); } catch(e) { console.warn('[FBSync] clear queue persistence error:', e); }
+  async function _clearPersistedQueue(tenantNs=_fbNs()) {
+    try { await _persistQueue(tenantNs); } catch(e) { console.warn('[FBSync] clear queue persistence error:', e); }
+  }
+
+  // `prepareTenantSwitch()` menghentikan listener dan scheduler dengan sengaja.
+  // Wizard tenant baru tidak melakukan reload, sehingga perlu menutup fase itu
+  // secara eksplisit setelah namespace baru telah ditetapkan. Tanpa fungsi ini
+  // semua DB.p() berikutnya hanya masuk IndexedDB karena `_tenantSwitching`
+  // tetap true selamanya.
+  async function completeTenantBootstrap() {
+    _switchEpoch++;
+    _tenantSwitching = false;
+    _reconcileIncomplete = false;
+    await _loadPersistedQueue();
+    if (navigator.onLine) reconnect();
+    else _dot('off');
+    _ensureQueueProgress();
   }
 
   // Queue tidak menyimpan tenant sendiri; perpindahan tenant hanya aman ketika
@@ -15032,7 +15036,11 @@ const FBSync = (() => {
     // Pending tenant ini sudah durably tersimpan per namespace. Ia tidak
     // boleh membuat pengguna terjebak di tenant lama; yang masih berjalan
     // tetap ditunggu agar tidak ada request aktif pada saat switch.
-    if (_writing || _reconnecting) return {ok:false, pending:_wq.length || 1, busy:true};
+    // Write yang sedang benar-benar dikirim harus selesai agar tidak ada
+    // request lintas namespace. Reconcile hanya read/resolve dan dapat
+    // dibatalkan; pending queue sendiri telah aman di IndexedDB per tenant.
+    if (_writing) return {ok:false, pending:_wq.length || 1, busy:true};
+    if (_reconnecting) _switchEpoch++;
     _tenantSwitching = true;
     stopListeners();
     return {ok:true, pending:_wq.length, preserved:_wq.length>0};
@@ -15087,12 +15095,14 @@ const FBSync = (() => {
     _writing = true;
     let pushedCount = 0;
     let storesTouched = new Set();
+    let flushedTenantNs = null;
     let failed = false;
     try {
       while (_wq.length && navigator.onLine) {
         // PEEK, jangan shift. Item baru dihapus SETELAH Firestore ACK dan
         // persistent queue berhasil diperbarui.
         const item = _wq[0];
+        const itemTenantNs = item.tenantNs || _fbNs();
         try {
         if (item.op === 'set') {
           // Gunakan PATCH (shallow merge) — hanya update field yang dikirim
@@ -15101,18 +15111,20 @@ const FBSync = (() => {
           // Firestore set(...,{merge:true}) tidak menghasilkan ETag/_conflict.
           // Konflik business state diselesaikan sebelum flush oleh resolver
           // pusat saat listener, pull, dan reconnect.
-          await _fbPatch('/' + item.store + '/' + item.id, stripped, item.tenantNs || null);
+          await _fbPatch('/' + item.store + '/' + item.id, stripped, itemTenantNs);
           pushedCount++;
           storesTouched.add(item.store);
+          flushedTenantNs = flushedTenantNs || itemTenantNs;
         } else {
-          await _fbFetch('/' + item.store + '/' + item.id, 'DELETE', null, item.tenantNs || null);
+          await _fbFetch('/' + item.store + '/' + item.id, 'DELETE', null, itemTenantNs);
           pushedCount++;
           storesTouched.add(item.store);
+          flushedTenantNs = flushedTenantNs || itemTenantNs;
         }
           // Jika write baru untuk dokumen sama masuk saat ACK ditunggu, entry
           // pertama sudah diganti oleh versi lebih baru. Jangan shift versi itu.
           if (_wq[0] === item) _wq.shift();
-          await _persistQueue();
+          await _persistQueue(itemTenantNs);
           _resetRetry();
         } catch(e) {
           failed = true;
@@ -15129,7 +15141,7 @@ const FBSync = (() => {
     _dot(_wq.length === 0 ? 'ok' : (failed ? 'err' : 'syncing'));
     // _persistQueue sudah dipanggil setiap ACK. Baris ini tetap memastikan
     // queue kosong direkam sebagai [] untuk compatibility record lama.
-    if (_wq.length === 0) await _clearPersistedQueue();
+    if (_wq.length === 0) await _clearPersistedQueue(flushedTenantNs || _fbNs());
     // Invariant Fase 1: bila online + queue masih ada + tidak ada flush aktif,
     // harus ada jalur berikutnya. Setelah gagal, _scheduleRetry sudah aktif;
     // setelah drain normal, jadwalkan segera untuk item yang masuk saat finally.
@@ -15143,7 +15155,7 @@ const FBSync = (() => {
     if (pushedCount > 0 && _origP) {
       try {
         const trigger = { id: '_syncTrigger', ts: Date.now(), stores: Array.from(storesTouched), by: S?.user?.nama || 'unknown', dev: _deviceId(), _ts: Date.now() };
-        await _fbPatch('/settings/_syncTrigger', trigger);
+        await _fbPatch('/settings/_syncTrigger', trigger, flushedTenantNs || _fbNs());
       } catch(e) { /* best-effort, jangan fail */ }
     }
   }
@@ -15316,13 +15328,13 @@ const FBSync = (() => {
     return { changed: resolution.action === 'remote', resolution };
   }
 
-  async function _reconcilePendingWrites() {
+  async function _reconcilePendingWrites(epoch=_switchEpoch) {
     // Targeted reads only: maksimal satu document get per queue entry, tanpa
     // scan koleksi absensi. Deterministic attendance IDs membuat ini murah.
     const pending = _wq.slice();
     const deadline=Date.now()+12000;
     for (const item of pending) {
-      if (!navigator.onLine || Date.now()>=deadline) {
+      if (epoch!==_switchEpoch || _tenantSwitching || !navigator.onLine || Date.now()>=deadline) {
         _lastWriteError = new Error('Rekonsiliasi pending belum mendapat jawaban server');
         return false;
       }
@@ -15340,6 +15352,7 @@ const FBSync = (() => {
         _lastWriteError = e;
         return false;
       }
+      if (epoch!==_switchEpoch || _tenantSwitching) return false;
       if (!remote || remote.deleted) continue;
       const normalized = Object.assign({}, remote);
       if (normalized.serverReceivedAt) normalized.serverReceivedAt = _serverMillis(normalized.serverReceivedAt);
@@ -15386,18 +15399,22 @@ const FBSync = (() => {
     if (!navigator.onLine) { _dot('off'); return; }
     if (_reconnectPromise) return _reconnectPromise;
     _reconnectPromise = (async () => {
+      const epoch=_switchEpoch;
       _dot('syncing');
       _reconnecting = true;
       await _loadPersistedQueue();
+      if (epoch!==_switchEpoch || _tenantSwitching) return false;
       // Selama ada queue, flush dilarang sampai reconciliation memperoleh
       // jawaban yang jelas (remote ada/tidak ada). Ini berlaku untuk semua
       // store, bukan hanya absensi.
       _reconcileIncomplete=_wq.length>0;
       await _awaitFbAuth();
+      if (epoch!==_switchEpoch || _tenantSwitching) return false;
       // Listener dinyalakan lebih dulu, lalu pending document direconcile
       // secara targeted sebelum queue boleh flush.
       startListeners();
-      const reconciled = await _reconcilePendingWrites();
+      const reconciled = await _reconcilePendingWrites(epoch);
+      if (epoch!==_switchEpoch || _tenantSwitching) return false;
       _reconcileIncomplete = !reconciled;
       if (reconciled) _resetReconnectRetry();
       else { _dot('err'); _scheduleReconnectRetry(); }
@@ -15416,17 +15433,21 @@ const FBSync = (() => {
   const _rekapPullCache = Object.create(null);
   const _rekapFullInflight = Object.create(null);
   async function _applyRekapRemote(store, items, channel) {
+    let changed=false;
     for (const raw of items) {
       if (!raw || !raw.id) continue;
       if (raw.deleted) {
-        if (_origD) await _origD(store, raw.id);
+        const local=await DB.g(store, raw.id).catch(()=>null);
+        if (local && _origD) { await _origD(store, raw.id); changed=true; }
         continue;
       }
       const remote = Object.assign({}, raw);
       if (remote.serverReceivedAt) remote.serverReceivedAt = _serverMillis(remote.serverReceivedAt);
       delete remote._ts; delete remote._etag; delete remote._srvTs;
-      await _applyRemoteRecord(store, remote, {channel});
+      const applied=await _applyRemoteRecord(store, remote, {channel});
+      if (applied?.changed) changed=true;
     }
+    return changed;
   }
   async function pullRekapMonth(year, month) {
     if (!navigator.onLine) return false;
@@ -15434,21 +15455,21 @@ const FBSync = (() => {
     if (Date.now() - (_rekapPullCache['m:'+key] || 0) < 30000) return false;
     const last = new Date(year, month + 1, 0).getDate();
     const sessions = await _fbFetchDateRange('sesi', 'tanggal', key+'-01', key+'-'+String(last).padStart(2,'0'));
-    await _applyRekapRemote('sesi', sessions, 'rekap-month');
+    const changed=await _applyRekapRemote('sesi', sessions, 'rekap-month');
     _rekapPullCache['m:'+key] = Date.now();
-    return sessions.length > 0;
+    return changed;
   }
   async function pullRekapDate(date) {
     if (!navigator.onLine || !date) return false;
     if (Date.now() - (_rekapPullCache['d:'+date] || 0) < 15000) return false;
     const sessions = await _fbFetchFiltered('sesi', 'tanggal', '==', date, null, null, undefined, 1000);
-    await _applyRekapRemote('sesi', sessions, 'rekap-date');
+    let changed=await _applyRekapRemote('sesi', sessions, 'rekap-date');
     for (const sx of sessions.filter(x=>!x.deleted)) {
       const attendance = await _fbFetchFiltered('absensi', 'sesiId', '==', sx.id, null, null, undefined, 1000);
-      await _applyRekapRemote('absensi', attendance, 'rekap-date');
+      if(await _applyRekapRemote('absensi', attendance, 'rekap-date')) changed=true;
     }
     _rekapPullCache['d:'+date] = Date.now();
-    return sessions.length > 0;
+    return changed;
   }
   async function pullRekapMonthFull(year, month) {
     if (!navigator.onLine) return false;
@@ -15456,16 +15477,19 @@ const FBSync = (() => {
     if (Date.now() - (_rekapPullCache['full:'+key] || 0) < 120000) return false;
     if (_rekapFullInflight[key]) return _rekapFullInflight[key];
     const job = (async()=>{
-      await pullRekapMonth(year, month);
-      const sessions = (await DB.ga('sesi')).filter(s => s.tanggal?.startsWith(key) && !s.deleted);
+      let changed=await pullRekapMonth(year, month);
+      const sessions = (DB.range
+        ? await DB.range('sesi','tanggal',key+'-01',key+'-31')
+        : (await DB.ga('sesi')).filter(s=>s.tanggal?.startsWith(key)))
+        .filter(s => !s.deleted);
       const groups=[];
       for(let i=0;i<sessions.length;i+=30) groups.push(sessions.slice(i,i+30).map(s=>s.id));
       for (const ids of groups) {
         const attendance = await _fbFetchWhereIn('absensi', 'sesiId', ids);
-        await _applyRekapRemote('absensi', attendance, 'rekap-month-full');
+        if(await _applyRekapRemote('absensi', attendance, 'rekap-month-full')) changed=true;
       }
       _rekapPullCache['full:'+key] = Date.now();
-      return true;
+      return changed;
     })();
     _rekapFullInflight[key] = job;
     try { return await job; }
@@ -15579,7 +15603,9 @@ const FBSync = (() => {
       // supaya render berikutnya baca data fresh dari IDB (bukan cache lama)
       if (changed) {
         stores.forEach(s => { if (typeof DB.invalidateCache === 'function') DB.invalidateCache(s); });
-        _scheduleReRender();
+        // Pull dapat membawa banyak collection sekaligus. Jangan rebuild
+        // halaman bila tidak ada collection yang dipakai halaman aktif.
+        if (stores.some(_isStoreRelevantToCurrentPage)) _scheduleReRender();
       }
     } catch(e) {
       console.warn('[FB] pull error:', e.message);
@@ -15792,14 +15818,21 @@ const FBSync = (() => {
       _pendingTriggerPull.clear();
       if (!stores.length || !navigator.onLine) return;
       pull(stores)
-        .then(() => { stores.forEach(s => _markPulled(s)); _scheduleReRender(); })
+        .then(() => { stores.forEach(s => _markPulled(s)); })
         .catch(e => console.warn('[SyncTrigger] pull error:', e.message));
     }, 1500);
   }
 
+  let _lastUserScrollAt = 0;
+  // Capture scroll dari semua container (termasuk body) agar pembaruan realtime
+  // tidak memotong aktivitas membaca. `true` menangkap event dari nested pane.
+  document.addEventListener('scroll', () => { _lastUserScrollAt = Date.now(); }, { capture:true, passive:true });
+
   function _scheduleReRender() {
     if (_renderTimer) clearTimeout(_renderTimer);
-    _renderTimer = setTimeout(() => {
+    // Jangan rebuild DOM saat jari pengguna masih sedang scroll.
+    const quietDelay = Math.max(600, 900 - (Date.now() - _lastUserScrollAt));
+    _renderTimer = setTimeout(async () => {
       _renderTimer = null;
       const pg = S.page;
       const fn = _RENDER_MAP[pg];
@@ -15813,6 +15846,12 @@ const FBSync = (() => {
         // AUDIT v3 b: Optimasi — jangan querySelectorAll('*') (ribuan elemen),
         // cukup simpan scrollTop dari #app + .sb + #chat-messages-wrap saja.
         const _scrollStates = [];
+        const _windowScroll = { x: window.scrollX, y: window.scrollY };
+        const _documentScroll = document.scrollingElement ? {
+          el: document.scrollingElement,
+          top: document.scrollingElement.scrollTop,
+          left: document.scrollingElement.scrollLeft
+        } : null;
         const _scrollContainerIds = ['app', 'bs', 'si', 'chat-messages-wrap'];
         _scrollContainerIds.forEach(id => {
           const el = document.getElementById(id);
@@ -15827,7 +15866,9 @@ const FBSync = (() => {
         const _activeId = _activeEl?.id || _activeEl?.dataset?.id || null;
         const _activeTag = _activeEl?.tagName?.toLowerCase() || null;
         try {
-          fn();
+          // Banyak renderer membaca IndexedDB secara async. Restore scroll
+          // hanya setelah DOM final selesai dibuat, bukan sebelum Promise-nya.
+          await Promise.resolve(fn());
         } catch(e) { console.warn('[FB Listener] re-render error:', e); }
         // Restore scroll positions
         // Pakai requestAnimationFrame supaya DOM sudah selesai di-rebuild
@@ -15840,6 +15881,13 @@ const FBSync = (() => {
               } catch(e) {}
             }
           });
+          if (_documentScroll?.el?.isConnected) {
+            try {
+              _documentScroll.el.scrollTop = _documentScroll.top;
+              _documentScroll.el.scrollLeft = _documentScroll.left;
+            } catch(e) {}
+          }
+          try { window.scrollTo(_windowScroll.x, _windowScroll.y); } catch(e) {}
           // Restore focus + selection
           if (_activeId && _activeTag) {
             const newActive = document.getElementById(_activeId) ||
@@ -15898,9 +15946,7 @@ const FBSync = (() => {
     qrScanLogs: ['qr'],
   };
   function _isStoreRelevantToCurrentPage(store) {
-    // v19: selalu return true — re-render untuk SEMUA store change.
-    // Mapping di atas dipertahankan untuk debugging/diagnostic only.
-    return true;
+    return (_STORE_TO_PAGES[store] || []).includes(S.page);
   }
 
   async function _handleDocChange(store, doc) {
@@ -15953,8 +15999,11 @@ const FBSync = (() => {
         toPull.forEach(s => _pendingTriggerPull.add(s));
         if (_pendingTriggerPull.size) _scheduleTriggerPull();
       }
-      // Re-render halaman aktif supaya data fresh dari IDB tampil
-      _scheduleReRender();
+      // Re-render hanya bila trigger memang menyentuh data yang dipakai
+      // halaman aktif. Listener/pull dokumen yang relevan tetap menjadwalkan
+      // render sendiri; ini mencegah rebuild saat membaca halaman lain.
+      const touchedForRender = Array.isArray(data?.stores) ? data.stores : [];
+      if (touchedForRender.some(_isStoreRelevantToCurrentPage)) _scheduleReRender();
       // Toast info jika trigger dari device lain
       if (!fromSelf && by && by !== 'unknown') {
         if (window.T) T('🔄 Sinkronisasi data dari ' + by, 2000);
@@ -16380,13 +16429,8 @@ const FBSync = (() => {
       toPull.forEach(s => _markPulled(s));
       // Pull NON-BLOCKING — return immediately, pull berjalan di background.
       // Data dari IDB (yang mungkin stale) sudah dipakai render oleh _origNav.
-      // Setelah pull selesai, re-render halaman aktif kalau user masih di sana.
-      pull(toPull).then(() => {
-        if (S.page === pg) {
-          // Re-render untuk update UI dengan data terbaru dari cloud
-          _scheduleReRender();
-        }
-      }).catch(e => {
+      // `pull()` sendiri menjadwalkan render bila ada perubahan yang relevan.
+      pull(toPull).catch(e => {
         console.warn('[pullForNav] error:', e.message);
         // Reset cache supaya bisa retry di nav berikutnya
         toPull.forEach(s => { _pullCache[s] = 0; });
@@ -16442,13 +16486,17 @@ const FBSync = (() => {
   function start() {
     _startQueueWatchdog();
     if (!navigator.onLine) { _dot('off'); return; }
-    reconnect().then(() => pullOnDemand()).then(() => {
-      setTimeout(() => _deduplicateAll().catch(()=>{}), 1000);
-      setTimeout(() => _sweepTombstones().catch(()=>{}), 2000);
+    reconnect().then(() => {
+      // Jangan pull seluruh store on-demand saat boot. auditLog dan qrScanLogs
+      // dapat tumbuh besar dan sebelumnya membuat login tersendat. Keduanya
+      // tetap dimuat saat halaman yang memerlukannya dibuka.
+      // Jangan jalankan deduplikasi massal di latar belakang: proses itu
+      // memindai absensi historis lalu menghasilkan tombstone/write sendiri.
+      // Deduplikasi eksplisit tetap tersedia untuk tindakan admin terukur.
     }).catch(e => console.warn('[FBSync] initial sync error:', e.message));
   }
 
-  return { write, prepareLocalWrite, resolveSyncConflict, resolveAttendanceConflict, reconnect, pull, pullAll, pullOnDemand, pullEssential, pullForNav, pullRekapMonth, pullRekapDate, pullRekapMonthFull, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, watchAttendanceSession, prepareTenantSwitch, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache, _unsubs, _REALTIME_STORES };
+  return { write, prepareLocalWrite, resolveSyncConflict, resolveAttendanceConflict, reconnect, pull, pullAll, pullOnDemand, pullEssential, pullForNav, pullRekapMonth, pullRekapDate, pullRekapMonthFull, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, watchAttendanceSession, prepareTenantSwitch, completeTenantBootstrap, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache, _unsubs, _REALTIME_STORES };
 })();
 
 // ════════════════════════════════════════════════════════════
@@ -16591,12 +16639,13 @@ function _startBgRefresh() {
     if (!navigator.onLine || document.hidden) return;
     FBSync._flushWrites();
   }, 120000); // 2 menit (sebelumnya 60 detik dengan chat poll)
-  // ── Tombstone sweep tiap 5 menit (ZERO Firestore reads) ──
-  if (window._bgSweepTimer) clearInterval(window._bgSweepTimer);
-  window._bgSweepTimer = setInterval(() => {
-    if (!navigator.onLine || document.hidden) return;
-    if (FBSync._sweepTombstones) FBSync._sweepTombstones().catch(()=>{});
-  }, 300000); // 5 menit
+  // Jangan sweep seluruh store di background. Walaupun tanpa Firestore read,
+  // pemindaian IndexedDB historis memblokir perangkat besar dan dapat merender
+  // ulang state lama. Tombstone tetap ditangani oleh jalur pull/realtime.
+  if (window._bgSweepTimer) {
+    clearInterval(window._bgSweepTimer);
+    window._bgSweepTimer = null;
+  }
 }
 // Saat tab/app kembali aktif: flush writes + cek listener (jangan restart kalau masih aktif)
 // AUDIT v3h: Sebelumnya, visibilitychange selalu panggil startListeners() yang
@@ -23185,43 +23234,45 @@ window.FBSync = FBSync;
     try { await _applyAsramaName(); } catch (e) {}
     const grid = document.getElementById('ls-grid');
     if (!grid) return;
-    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:20px 0;color:var(--t3);font-size:12px">⏳ Memuat data...</div>';
-    if (navigator.onLine) {
-      try {
-        const timeout = (p, ms) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error('timeout')), ms))]);
-        const fbData = await timeout(_fbFetch('/users'), 4500, 'pull users').catch(() => null);
-        if (fbData && typeof fbData === 'object') {
-          for (const u of Object.values(fbData).filter(x => x && x.id)) {
-            delete u._ts;
-            if (u.foto === '__L__') { const loc = await DB.g('users', u.id); if (loc && loc.foto && !loc.foto.startsWith('__')) u.foto = loc.foto; else delete u.foto; }
-            const loc = await DB.g('users', u.id);
-            if (!loc || (u.updatedAt || 0) >= (loc.updatedAt || 0)) { if (window.FBSync?._origP) await window.FBSync._origP('users', u); else await DB.p('users', u); }
-          }
-        }
-      } catch (e) { console.warn('[Login] FB pull:', e.message); }
-    }
-    let users = await DB.ga('users').catch(() => []);
-    let all = users.filter(u => u && !u.deleted);
-    // Auto-create default admin2 roles if no users exist
-    if (!all.length) { await window.PesantrenkuPhase11.ensureDefaultAdmins(); users = await DB.ga('users').catch(() => []); all = users.filter(u => u && !u.deleted); }
     const lblEl = document.querySelector('.ls-lbl');
     if (lblEl) lblEl.textContent = 'Pilih Pengguna';
     const esc = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    grid.innerHTML = all.map(u => {
-      const role = u.role || 'musyrifah';
-      const label = ROLE_LABELS[role] || 'Musyrifah';
-      const icon = ROLE_ICONS[role] || '📋';
-      const avHtml = u.foto ? '<img src="' + u.foto + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover">' : esc((u.nama || '?').charAt(0));
-      return '<div class="ls-card" onclick="App.loginUser(\'' + u.id + '\')"><div class="ls-av" data-uid="' + u.id + '"' + (role === 'pengasuh' ? ' style="box-shadow:0 4px 12px rgba(139,92,246,.35)"' : '') + '>' + avHtml + '</div><div class="ls-name">' + esc(u.nama) + '</div><div class="ls-role" style="display:flex;align-items:center;gap:3px;justify-content:center"><span style="font-size:10px">' + icon + '</span> ' + esc(label) + '</div></div>';
-    }).join('');
+    const draw = users => {
+      const all=(users||[]).filter(u=>u && !u.deleted);
+      if(!all.length){
+        grid.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:18px 8px;color:var(--t3);font-size:12px">Belum ada akun pada perangkat ini. Memeriksa akun tenant…</div>';
+        return;
+      }
+      grid.innerHTML=all.map(u=>{
+        const role=u.role||'musyrifah',label=ROLE_LABELS[role]||'Musyrifah',icon=ROLE_ICONS[role]||'📋';
+        const avHtml=u.foto?'<img src="'+u.foto+'" style="width:100%;height:100%;border-radius:50%;object-fit:cover">':esc((u.nama||'?').charAt(0));
+        return '<div class="ls-card" onclick="App.loginUser(\''+u.id+'\')"><div class="ls-av" data-uid="'+u.id+'"'+(role==='pengasuh'?' style="box-shadow:0 4px 12px rgba(139,92,246,.35)"':'')+'>'+avHtml+'</div><div class="ls-name">'+esc(u.nama)+'</div><div class="ls-role" style="display:flex;align-items:center;gap:3px;justify-content:center"><span style="font-size:10px">'+icon+'</span> '+esc(label)+'</div></div>';
+      }).join('');
+    };
+    // Login selalu menampilkan IndexedDB dulu. Jaringan lambat tidak boleh
+    // menahan daftar akun dan membuat layar login seolah macet.
+    draw(await DB.ga('users').catch(()=>[]));
+    if(!navigator.onLine) return;
+    (async()=>{
+      try{
+        const timeout=(p,ms)=>Promise.race([p,new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),ms))]);
+        const fbData=await timeout(_fbFetch('/users'),4500).catch(()=>null);
+        if(!fbData||typeof fbData!=='object')return;
+        for(const raw of Object.values(fbData)){
+          if(!raw||!raw.id)continue;
+          const u=Object.assign({},raw);delete u._ts;
+          if(u.foto==='__L__'){const loc=await DB.g('users',u.id);if(loc?.foto&&!loc.foto.startsWith('__'))u.foto=loc.foto;else delete u.foto;}
+          if(window.FBSync?._origP)await window.FBSync._origP('users',u);else await DB.p('users',u);
+        }
+        // Data cloud lama mungkin sudah memiliki duplikat otomatis dari
+        // perangkat sebelumnya. Bersihkan hanya record sistem yang pasti.
+        await window.PesantrenkuPhase11?.dedupeDefaultAdmins?.();
+        draw(await DB.ga('users').catch(()=>[]));
+      }catch(e){console.warn('[Login] background users pull:',e.message||e);}
+    })();
   };
 
-  // Auto-create default admin accounts for new tenants
-  window.PesantrenkuPhase11.ensureDefaultAdmins = async function () {
-    const existing = await DB.ga('users');
-    const existingRoles = new Set(existing.filter(u => !u.deleted).map(u => u.role));
-    const now = Date.now();
-    const defaults = [
+  const DEFAULT_ADMIN_ACCOUNTS = [
       { nama: 'Hyper Admin', role: 'hyperadmin', pin: '1234' },
       { nama: 'Pengasuh', role: 'pengasuh', pin: '123456' },
       { nama: 'Bendahara', role: 'bendahara', pin: '1234' },
@@ -23229,9 +23280,46 @@ window.FBSync = FBSync;
       { nama: 'Admin Keamanan', role: 'keamanan', pin: '1234' },
       { nama: 'Admin Kesehatan', role: 'kesehatan', pin: '1234' },
       { nama: 'Admin Absensi', role: 'absensi', pin: '1234' },
-    ];
+  ];
+  // Hapus hanya duplikat yang dapat dibuktikan dibuat otomatis oleh aplikasi.
+  // Akun buatan pengurus tidak disentuh, termasuk bila kebetulan memiliki role
+  // yang sama. Dokumen canonical mempertahankan ID deterministik bila ada.
+  window.PesantrenkuPhase11.dedupeDefaultAdmins = async function () {
+    const existing=(await DB.ga('users')).filter(u=>u && !u.deleted);
+    let removed=0;
+    for(const d of DEFAULT_ADMIN_ACCOUNTS){
+      // Versi lama membuat akun bawaan memakai id acak dan tanpa createdBy.
+      // Jangan menyentuh akun pengurus biasa; legacy hanya dianggap akun
+      // bawaan bila nama, role, dan PIN-nya persis sama dengan template.
+      const isSystemDefault=u => u.createdBy==='system' ||
+        String(u.id||'').startsWith('sys_admin_') ||
+        (String(u.nama||'').trim().toLowerCase()===d.nama.toLowerCase() &&
+         String(u.role||'')===d.role && String(u.pin||'')===String(d.pin));
+      const candidates=existing.filter(u=>u.role===d.role && isSystemDefault(u));
+      if(candidates.length<2)continue;
+      candidates.sort((a,b)=>{
+        if(a.id==='sys_admin_'+d.role)return -1;
+        if(b.id==='sys_admin_'+d.role)return 1;
+        return (a.createdAt||0)-(b.createdAt||0);
+      });
+      for(const duplicate of candidates.slice(1)){
+        await DB.d('users',duplicate.id);
+        removed++;
+      }
+    }
+    return removed;
+  };
+  // Auto-create default admin accounts only from explicit tenant onboarding.
+  window.PesantrenkuPhase11.ensureDefaultAdmins = async function () {
+    await window.PesantrenkuPhase11.dedupeDefaultAdmins();
+    const existing = await DB.ga('users');
+    const existingRoles = new Set(existing.filter(u => !u.deleted).map(u => u.role));
+    const now = Date.now();
+    const defaults = DEFAULT_ADMIN_ACCOUNTS;
     let created = 0;
-    for (const d of defaults) { if (existingRoles.has(d.role)) continue; await DB.p('users', { id: uid(), nama: d.nama, role: d.role, pin: d.pin, createdAt: now + created, updatedAt: now + created, createdBy: 'system' }); created++; }
+    // ID deterministik menutup race dua perangkat baru yang melakukan seed
+    // bersamaan. Sebelumnya uid() acak menciptakan admin bawaan bertumpuk.
+    for (const d of defaults) { if (existingRoles.has(d.role)) continue; await DB.p('users', { id: 'sys_admin_'+d.role, nama: d.nama, role: d.role, pin: d.pin, createdAt: now + created, updatedAt: now + created, createdBy: 'system' }); created++; }
     if (created) console.log('[Phase11] Auto-created ' + created + ' default admin accounts.');
     return created;
   };
@@ -23240,25 +23328,16 @@ window.FBSync = FBSync;
   // Call tryAutoLogin on script load (after a short delay to let app boot)
   // Also ensure default admins are created and login screen is re-rendered
   setTimeout(async () => {
-    // First, ensure default admin accounts exist
+    // Jangan seed akun dari background login. Perangkat baru yang belum selesai
+    // menerima users cloud pernah menganggap tenant kosong lalu menambah akun
+    // default lagi. Seed hanya dipanggil oleh onboarding tenant baru.
     try {
       const users = await DB.ga('users');
       const all = users.filter(u => u && !u.deleted);
-      // If only the fallback 'Admin' (musyrifah) exists, or no users at all, create defaults
-      const hasRoles = all.some(u => u.role && u.role !== 'musyrifah');
-      if (!hasRoles) {
-        await window.PesantrenkuPhase11.ensureDefaultAdmins();
-        // Remove the fallback 'Admin' user if it was created by original renderLogin
-        const fallback = users.find(u => (u.nama === 'Admin' && u.role === 'musyrifah') || u.loginFallback);
-        if (fallback) { await DB.d('users', fallback.id); }
-        // Re-render login screen if user not logged in
-        if (!S.user) {
-          const ls = document.getElementById('ls');
-          if (ls && ls.style.display !== 'none') {
-            await window.renderLogin();
-          }
-        }
-      }
+      const removed=await window.PesantrenkuPhase11.dedupeDefaultAdmins();
+      if(removed && !S.user) await window.renderLogin();
+      const fallback=users.find(u=>(u.nama==='Admin'&&u.role==='musyrifah')||u.loginFallback);
+      if(fallback && all.some(u=>u.id!==fallback.id&&u.role&&u.role!=='musyrifah')) await DB.d('users',fallback.id);
     } catch (e) { console.warn('[Phase11] ensureDefaultAdmins error:', e); }
     // Try auto-login
     if (!S.user) {
