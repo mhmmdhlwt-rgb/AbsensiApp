@@ -1970,7 +1970,7 @@ const S={
   rkDate:_todayLocal(),rkKgId:null,
   _sesiId:null,_skId:null,_icon:'📅',
   _profilId:null,_profilTab:'identitas',
-  _pelFilter:'semua',_pelFotos:[],_tazirFotoB64:'',_pelSelSnt:new Set(),_pelListTab:'auto',
+  _pelFilter:'semua',_pelFotos:[],_tazirFotoB64:'',_pelSelSnt:new Set(),_pelListTab:'semua',
   _pelSearch:'',_pelKgFilter:'semua',_pelSkFilter:'semua',_pelAsramaFilter:'',_pelKamarFilter:'',
   _uzurSearch:'',_uzurSelSnt:null,
 };
@@ -2196,9 +2196,8 @@ async function renderLogin(){
           }
           const loc = await DB.g('users', u.id);
           if (!loc || (u.updatedAt||0) >= (loc.updatedAt||0)) {
-            // Pakai FBSync._origP bypass (tidak trigger FBSync write-back loop)
-            if (window.FBSync?._origP) { await window.FBSync._origP('users', u); }
-            else { await DB.p('users', u); }
+            // Simpan mirror cloud tanpa mengirim akun itu kembali ke queue.
+            await FBSync.persistRemote('users', u);
           }
         }
       }
@@ -2974,14 +2973,19 @@ const App={
 
 
   async renderKg(){
-    const [kg,sk,ses,abs]=await Promise.all([DB.ga('kegiatan'),DB.ga('subKeg'),DB.ga('sesi'),DB.ga('absensi')]);
+    const today=_todayLocal();
+    // Halaman kegiatan hanya menampilkan keadaan hari ini. Membaca seluruh
+    // riwayat sesi/absensi setiap membuka tab ini membuat tenant lama tersendat.
+    const [kg,sk,ses]=await Promise.all([
+      DB.ga('kegiatan'),DB.ga('subKeg'),
+      DB.by ? DB.by('sesi','tanggal',today) : DB.ga('sesi').then(xs=>xs.filter(x=>x.tanggal===today))
+    ]);
     // Safety-net: filter out items yang tertinggal sebagai tombstone (deleted:true)
     // di IndexedDB. Seharusnya tidak terjadi jika sync berjalan normal, tapi
     // ini mencegah kegiatan yang sudah dihapus di perangkat lain tetap muncul.
     const kgActive=kg.filter(k=>!k.deleted);
     const skActive=sk.filter(s=>!s.deleted);
     kgActive.sort((a,b)=>a.urutan-b.urutan);
-    const today=_todayLocal();
     const el=document.getElementById('kg-body');
     if(!kgActive.length){el.innerHTML=`<div class="empty"><div class="ei">\uD83D\uDCC5</div><div class="et">Belum ada kegiatan</div></div><div style="padding:0 15px"><button class="bg2 bw" onclick="App.addKg()">+ Tambah Kegiatan</button></div>`;return}
     el.innerHTML=`<div style="padding:0 15px;display:flex;flex-direction:column;gap:9px">
@@ -5617,7 +5621,9 @@ catch{OS('<div class="sh">Identitas Santri</div><div class="sb"><textarea class=
     S.rkDate=d;
     const res=document.getElementById('rk-res');
     if(res)res.innerHTML='<div class="empty" style="padding:20px 0"><div class="es">Memuat rekap tanggal terpilih…</div></div>';
-    try{if(navigator.onLine&&FBSync.pullRekapDate)await FBSync.pullRekapDate(d);}catch(e){console.warn('[Rekap] date pull error:',e);T('⚠️ Riwayat cloud belum dapat dimuat. Coba lagi saat koneksi stabil.',4000);}
+    // Render cache lokal dulu. _rkHarian menjalankan pull tanggal terarah di
+    // belakang layar dan merender ulang bila ada data cloud; jangan menahan UI
+    // sampai semua query absensi sesi selesai.
     await this._rkHarian();
   },
   async rkSelKg(id){S.rkKgId=id;await this._rkHarian()},
@@ -5962,6 +5968,8 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
     S._pelSearch=S._pelSearch||'';
     S._pelKgFilter=S._pelKgFilter||'semua';
     S._pelSkFilter=S._pelSkFilter||'semua';
+    S._pelMonthFilter=S._pelMonthFilter||'';
+    S._pelDateFilter=S._pelDateFilter||'';
     const [pel,snt,kg,sk,per,km]=await Promise.all([DB.ga('pelanggaran'),DB.ga('santri'),DB.ga('kegiatan'),DB.ga('subKeg'),DB.ga('peraturan'),DB.ga('kamar')]);
     const sntM=mapBy(snt,'id'),kgM=mapBy(kg,'id'),skM=mapBy(sk,'id');
     // Build kamar→komplek mapping for asrama filter
@@ -5989,7 +5997,13 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
     const q=(S._pelSearch||'').toLowerCase().trim();
     const fKg=S._pelKgFilter==='semua'?fStatus:fStatus.filter(p=>p.kgId===S._pelKgFilter);
     const fSk=S._pelSkFilter==='semua'?fKg:fKg.filter(p=>p.skId===S._pelSkFilter);
-    const f=q===''?fSk:fSk.filter(p=>{
+    // Tanggal lebih spesifik daripada bulan. Saat tanggal dipilih, filter
+    // bulan tetap tersimpan hanya sebagai pilihan terakhir, tetapi tidak ikut
+    // membatasi daftar agar perilakunya mudah dipahami.
+    const fPeriod=S._pelDateFilter
+      ? fSk.filter(p=>p.tanggal===S._pelDateFilter)
+      : (S._pelMonthFilter ? fSk.filter(p=>(p.tanggal||'').startsWith(S._pelMonthFilter)) : fSk);
+    const f=q===''?fPeriod:fPeriod.filter(p=>{
       const sn=sntM[p.sntId];
       const nm=(sn?.nama||'').toLowerCase();
       const dsc=(p.deskripsi||'').toLowerCase();
@@ -6057,7 +6071,8 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
       </div>`;
     }).join('');
     // ── v16: Cek apakah ada filter aktif (untuk menampilkan chip "Reset")
-    const hasFilter=q!==''||S._pelKgFilter!=='semua'||S._pelSkFilter!=='semua'||S._pelAsramaFilter||S._pelKamarFilter;
+    const availableMonths=[...new Set(pel.map(p=>(p.tanggal||'').slice(0,7)).filter(x=>/^\d{4}-\d{2}$/.test(x)))].sort().reverse();
+    const hasFilter=q!==''||S._pelKgFilter!=='semua'||S._pelSkFilter!=='semua'||S._pelAsramaFilter||S._pelKamarFilter||S._pelMonthFilter||S._pelDateFilter;
     document.getElementById('pel-body').innerHTML=`<div style="padding:0 15px 15px">
       <!-- Stat cards -->
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:12px">
@@ -6135,15 +6150,29 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
             </select>
           </div>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px">
+          <div>
+            <div style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;padding:0 2px">Bulan</div>
+            <select class="fi" style="padding:8px 10px;font-size:12px;background:var(--inp);border:1.5px solid var(--dv);border-radius:var(--r2);width:100%" onchange="App._pelMonthFilterChange(this.value)">
+              <option value="" ${!S._pelMonthFilter?'selected':''}>Semua Bulan</option>
+              ${availableMonths.map(m=>`<option value="${m}" ${S._pelMonthFilter===m?'selected':''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;padding:0 2px">Tanggal</div>
+            <input class="fi" type="date" value="${S._pelDateFilter}" onchange="App._pelDateFilterChange(this.value)" style="padding:8px 10px;font-size:12px;background:var(--inp);border:1.5px solid var(--dv);border-radius:var(--r2);width:100%;box-sizing:border-box">
+          </div>
+        </div>
         ${hasFilter?`<div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--t3)">
           <span>Menampilkan <b style="color:var(--t1)">${fAuto.length+fManual.length}</b> dari ${tot} pelanggaran</span>
           <button onclick="App._pelResetFilter()" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#ef4444;font-size:10px;font-weight:700;padding:4px 10px;border-radius:100px;cursor:pointer">✕ Reset Filter</button>
         </div>`:''}
       </div>
-      <!-- Tab Alpha/Terlambat vs Non Alpha (tidak collapsible) -->
+      <!-- Semua catatan terlihat sebagai default; kategori tetap tersedia. -->
       <div style="display:flex;justify-content:center;gap:0;margin:10px 0 14px;background:var(--su2);border:1.5px solid var(--dv);border-radius:100px;padding:3px">
-        <button id="pltab-auto" onclick="App._setPelListTab('auto')" style="flex:1;padding:8px 0;border-radius:100px;border:none;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;${(S._pelListTab||'auto')==='auto'?'background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;box-shadow:0 3px 10px rgba(239,68,68,.3)':'background:transparent;color:var(--t3)'}">⚠️ Alpha / Terlambat (${fAuto.length})</button>
-        <button id="pltab-manual" onclick="App._setPelListTab('manual')" style="flex:1;padding:8px 0;border-radius:100px;border:none;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;${(S._pelListTab||'auto')==='manual'?'background:var(--grad);color:#fff;box-shadow:0 3px 10px rgba(13,181,127,.3)':'background:transparent;color:var(--t3)'}">✏️ Non Alpha (${fManual.length})</button>
+        <button onclick="App._setPelListTab('semua')" style="flex:1;padding:8px 0;border-radius:100px;border:none;font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;${(S._pelListTab||'semua')==='semua'?'background:var(--grad);color:#fff;box-shadow:0 3px 10px rgba(13,181,127,.3)':'background:transparent;color:var(--t3)'}">Semua (${fFinal.length})</button>
+        <button id="pltab-auto" onclick="App._setPelListTab('auto')" style="flex:1;padding:8px 0;border-radius:100px;border:none;font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;${(S._pelListTab||'semua')==='auto'?'background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;box-shadow:0 3px 10px rgba(239,68,68,.3)':'background:transparent;color:var(--t3)'}">Alpha (${fAuto.length})</button>
+        <button id="pltab-manual" onclick="App._setPelListTab('manual')" style="flex:1;padding:8px 0;border-radius:100px;border:none;font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;${(S._pelListTab||'semua')==='manual'?'background:var(--grad);color:#fff;box-shadow:0 3px 10px rgba(13,181,127,.3)':'background:transparent;color:var(--t3)'}">Manual (${fManual.length})</button>
       </div>
       <!-- Filter status (collapsible) -->
       <div class="fwrap${S._pelFilterOpen===true?' on':''}" id="pel-fwrap">
@@ -6160,9 +6189,11 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
         </div>
       </div>
       <!-- List berdasarkan tab aktif -->
-      ${(S._pelListTab||'auto')==='auto'
+      ${(S._pelListTab||'semua')==='auto'
         ?( fAuto.length ? autoGroupHtml : '<div class="empty" style="padding:20px 0"><div class="es">Tidak ada pelanggaran Alpha / Terlambat.</div></div>' )
-        :( fManual.length ? sortPel(fManual).map(renderCard).join('') : '<div class="empty" style="padding:20px 0"><div class="es">Tidak ada pelanggaran Non Alpha.</div></div>' )
+        :(S._pelListTab||'semua')==='manual'
+          ?( fManual.length ? sortPel(fManual).map(renderCard).join('') : '<div class="empty" style="padding:20px 0"><div class="es">Tidak ada pelanggaran manual.</div></div>' )
+          :( fFinal.length ? sortPel(fFinal).map(renderCard).join('') : '<div class="empty" style="padding:20px 0"><div class="es">Tidak ada pelanggaran pada filter ini.</div></div>' )
       }
     </div>`;
   },
@@ -6210,8 +6241,18 @@ catch{OS('<div class="sh">Rekap Bulanan</div><div class="sb" style="padding-bott
     S._pelKamarFilter=val||'';
     this.renderPel();
   },
+  _pelMonthFilterChange(val){
+    S._pelMonthFilter=val||'';
+    if(S._pelMonthFilter)S._pelDateFilter='';
+    this.renderPel();
+  },
+  _pelDateFilterChange(val){
+    S._pelDateFilter=val||'';
+    if(S._pelDateFilter)S._pelMonthFilter='';
+    this.renderPel();
+  },
   _pelResetFilter(){
-    S._pelSearch='';S._pelKgFilter='semua';S._pelSkFilter='semua';S._pelAsramaFilter='';S._pelKamarFilter='';
+    S._pelSearch='';S._pelKgFilter='semua';S._pelSkFilter='semua';S._pelAsramaFilter='';S._pelKamarFilter='';S._pelMonthFilter='';S._pelDateFilter='';
     this.renderPel();
   },
   _tazirPop(pelId){
@@ -12116,7 +12157,9 @@ const TenantPicker = {
       localStorage.setItem('tenant_nama',nama);
       localStorage.setItem('tenant_tipe',tipe||'asrama');
       const _cs=['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','settings','users','kamar','catatanSantri','pelanggaran','peraturan','kalam','perizinan','uzur','catatanSakit','academicRecords','academicTargets','academicPrograms','academicEvaluations','financeBills','financePayments','qrScanLogs','hafalanTargets','hafalanProgress','cashflow','diniyahKelas','diniyahMapel','academicYears','diniyahPenempatan','rapotNilai'];
-      for(const s of _cs){try{await DB.cl(s);}catch(e){}}
+      // Clear store terpisah dapat berjalan paralel. Loop berurutan atas 30+
+      // store sebelumnya membuat pindah tenant terasa macet sebelum login.
+      await Promise.allSettled(_cs.map(s=>DB.cl(s)));
       T('Berhasil masuk ke '+nama+'! Memuat...');
       setTimeout(()=>location.reload(),700);
     });
@@ -12947,23 +12990,11 @@ async function _chatBgCheck() {
 // Sehingga tiap pagi musyrifah mulai dari nol
 // ═══════════════════════════════════════════════════════════════
 async function _dailyReset() {
-  const today = _todayLocal();
-  const lastDay = localStorage.getItem('last_active_day');
-  localStorage.setItem('last_active_day', today);
-  if (lastDay === today) return; // sudah hari ini, skip
-  // Hari baru: hapus sesi draft kemarin yang belum dikunci
-  // agar dashboard tidak menampilkan sesi lama
-  try {
-    const allSes = await DB.ga('sesi');
-    const oldDraft = allSes.filter(x => x.tanggal !== today && !x.locked && x.status !== 'selesai');
-    for (const sx of oldDraft) {
-      // Hapus absensi draft kemarin (yang belum dikunci/selesai)
-      const abs = (await DB.ga('absensi')).filter(a => a.sesiId === sx.id);
-      for (const a of abs) await DB.d('absensi', a.id);
-      await DB.d('sesi', sx.id);
-    }
-    console.log('[App] Hari baru:', today, '— sesi draft kemarin dibersihkan:', oldDraft.length);
-  } catch(e) { console.warn('[DailyReset] error:', e); }
+  // Riwayat adalah data operasional. Pergantian hari tidak boleh menghapus
+  // sesi/absensi apa pun secara diam-diam; reset hanya dilakukan admin lewat
+  // tindakan eksplisit yang lalu masuk queue dan mendapat ACK cloud.
+  localStorage.setItem('last_active_day', _todayLocal());
+  return 0;
 }
 
 
@@ -14902,7 +14933,7 @@ const FBSync = (() => {
   // yang melakukan pull tidak melihat dokumen itu sama sekali dan tidak
   // tahu harus menghapus salinan lokalnya.
   // ════════════════════════════════════════════════════════
-  async function write(op, store, obj, id) {
+  async function write(op, store, obj, id, deletedRecord=null) {
     // Dedup queue: jika ada entry yang sama store+id, hapus yang lama
     const eid = obj ? obj.id : id;
     const tenantNs = _fbNs();
@@ -14919,20 +14950,12 @@ const FBSync = (() => {
       // Sekarang: cari record lokal yang akan dihapus, salin sesiId & sntId ke
       // tombstone. Untuk store non-absensi, tetap pakai tombstone minimal.
       const tomb = { id: eid, deleted: true, updatedAt: Date.now() };
-      if (store === 'absensi' && _origP) {
-        // Async lookup record lokal — best-effort, jangan block write queue.
-        DB.g('absensi', eid).then(loc => {
-          if (loc && loc.sesiId) {
-            // Update tombstone yang sudah di-queue dengan sesiId & sntId.
-            // Cari entry di _wq, patch field sesiId & sntId.
-            const entry = _wq.find(x => x.store === store && x.id === eid);
-            if (entry && entry.obj) {
-              entry.obj.sesiId = loc.sesiId;
-              entry.obj.sntId = loc.sntId;
-              _persistQueue();
-            }
-          }
-        }).catch(()=>{});
+      // DB.d menghapus IndexedDB lebih dulu. Karena itu konteks harus dibawa
+      // oleh caller sebelum delete, bukan dicari lagi sesudahnya. Konteks ini
+      // membuat tombstone absensi/sesi tetap dapat direkonsiliasi terarah.
+      if (deletedRecord) {
+        ['sesiId','sntId','kgId','skId','tanggal','createdAt','recordedAt','source']
+          .forEach(k => { if (deletedRecord[k] !== undefined) tomb[k] = deletedRecord[k]; });
       }
       _wq.push({op:'set', store, obj: tomb, id: eid, tenantNs, ts: Date.now()});
     } else {
@@ -15095,6 +15118,8 @@ const FBSync = (() => {
     _writing = true;
     let pushedCount = 0;
     let storesTouched = new Set();
+    let touchedDates = new Set();
+    let touchedSessionIds = new Set();
     let flushedTenantNs = null;
     let failed = false;
     try {
@@ -15104,6 +15129,8 @@ const FBSync = (() => {
         const item = _wq[0];
         const itemTenantNs = item.tenantNs || _fbNs();
         try {
+        if (item.store === 'sesi' && item.obj?.tanggal) touchedDates.add(item.obj.tanggal);
+        if (item.store === 'absensi' && item.obj?.sesiId) touchedSessionIds.add(item.obj.sesiId);
         if (item.op === 'set') {
           // Gunakan PATCH (shallow merge) — hanya update field yang dikirim
           // Ini TIDAK menimpa field lain yang mungkin sudah diedit admin lain
@@ -15154,7 +15181,14 @@ const FBSync = (() => {
     // (mis. santri/kegiatan) lag atau miss.
     if (pushedCount > 0 && _origP) {
       try {
-        const trigger = { id: '_syncTrigger', ts: Date.now(), stores: Array.from(storesTouched), by: S?.user?.nama || 'unknown', dev: _deviceId(), _ts: Date.now() };
+        const trigger = {
+          id: '_syncTrigger', ts: Date.now(), stores: Array.from(storesTouched),
+          // Hint kecil, bukan salinan data. Dipakai HP lain untuk mengambil
+          // rekap tanggal lama yang memang tidak dilindungi listener hari ini.
+          dates: Array.from(touchedDates).slice(0, 31),
+          sessionIds: Array.from(touchedSessionIds).slice(0, 120),
+          by: S?.user?.nama || 'unknown', dev: _deviceId(), _ts: Date.now()
+        };
         await _fbPatch('/settings/_syncTrigger', trigger, flushedTenantNs || _fbNs());
       } catch(e) { /* best-effort, jangan fail */ }
     }
@@ -15242,6 +15276,12 @@ const FBSync = (() => {
     const localPending = _wq.some(item => item.store === store && item.id === local.id);
     if (localPending && !context.reconnecting) {
       return { action:'local', value:local, reason:'active-local-pending-awaiting-ack' };
+    }
+    // Jika tidak ada write lokal yang menunggu ACK, cloud adalah sumber
+    // kebenaran. Membiarkan cache lokal menang hanya karena Date.now() lebih
+    // besar membuat Refresh/Sync Semua tampak tidak bekerja antar perangkat.
+    if (!localPending && !context.reconnecting) {
+      return { action:'remote', value:remote, reason:context.forceRemote ? 'manual-cloud-reconcile' : 'remote-acknowledged' };
     }
     const localTs = Number(local.updatedAt || local.createdAt || local._ts || 0) || 0;
     const remoteTs = Number(remote.updatedAt || remote.createdAt || remote._ts || 0) || 0;
@@ -15503,8 +15543,8 @@ const FBSync = (() => {
   //   - kamar: merge by NAMA (bukan ID) — hindari duplikat nama
   //   - lainnya: merge by ID, last-write-wins
   // ════════════════════════════════════════════════════════
-  async function pull(stores) {
-    if (!navigator.onLine) return;
+  async function pull(stores, context={}) {
+    if (!navigator.onLine) return false;
     _dot('syncing');
     // AUDIT v3: pull() sebelumnya hanya menulis ke IndexedDB tanpa pernah
     // memberi tahu UI untuk re-render. Ini membuat data yang ditarik oleh
@@ -15512,11 +15552,21 @@ const FBSync = (() => {
     // lalu kembali. `changed` melacak apakah ada penambahan/pembaruan/penghapusan
     // nyata selama pull ini berlangsung.
     let changed = false;
+    let failed = false;
     try {
-      const results = await Promise.all(stores.map(s => _fbFetch('/' + s).catch(()=>null)));
+      const results = await Promise.all(stores.map(async s => {
+        try { return { data:await _fbFetch('/' + s), error:null }; }
+        catch (error) { return { data:null, error }; }
+      }));
       for (let i = 0; i < stores.length; i++) {
         const store = stores[i];
-        const fbData = results[i];
+        const result = results[i];
+        if (result.error) {
+          failed = true;
+          console.warn('[FB] pull store gagal:', store, result.error?.message || result.error);
+          continue;
+        }
+        const fbData = result.data;
         if (!fbData || typeof fbData !== 'object') continue;
         const fbItems = Object.values(fbData).filter(x => x && x.id);
 
@@ -15589,12 +15639,12 @@ const FBSync = (() => {
             const exists = localAll.some(x => x.id === fbObj.id);
             const name = store === 'kamar' ? (fbObj.nama||'').trim().toLowerCase() : '';
             if (store === 'kamar' && !exists && localNames.has(name) && !pending) continue;
-            const applied = await _applyRemoteRecord(store, fbObj, { channel:'pull' });
+            const applied = await _applyRemoteRecord(store, fbObj, Object.assign({ channel:'pull' }, context));
             if (applied.changed) changed = true;
           }
         }
       }
-      _dot('ok');
+      _dot(failed ? 'err' : 'ok');
       // BUG FIX: kalau ada perubahan nyata, jadwalkan re-render halaman aktif
       // (pakai fungsi yang sama dengan real-time listener) supaya kegiatan/
       // sub-kegiatan baru atau yang dihapus di device lain langsung terlihat
@@ -15607,9 +15657,11 @@ const FBSync = (() => {
         // halaman bila tidak ada collection yang dipakai halaman aktif.
         if (stores.some(_isStoreRelevantToCurrentPage)) _scheduleReRender();
       }
+      return !failed;
     } catch(e) {
       console.warn('[FB] pull error:', e.message);
       _dot('err');
+      return false;
     }
   }
 
@@ -15625,7 +15677,8 @@ const FBSync = (() => {
     _dot('syncing');
     if (window.T) T('⏳ Menyelaraskan semua data dari cloud...', 4000);
     const ALL = ['santri','kegiatan','subKeg','anggota','sesi','absensi','auditLog','users','kamar','catatanSantri','pelanggaran','peraturan','settings','kalam','perizinan','uzur','catatanSakit','academicRecords','academicTargets','academicPrograms','academicEvaluations','financeBills','financePayments','qrScanLogs'];
-    await pull(ALL);
+    const ok = await pull(ALL, { forceRemote:true });
+    if (!ok) throw new Error('Sebagian data cloud gagal dimuat; coba lagi saat koneksi stabil.');
     // Tandai semua store sebagai sudah di-pull (cache 5 menit)
     ALL.forEach(s => _markPulled(s));
     _dot('ok');
@@ -15998,6 +16051,20 @@ const FBSync = (() => {
         // Kumpulkan store selama 1.5 detik, lalu pull sekali saja.
         toPull.forEach(s => _pendingTriggerPull.add(s));
         if (_pendingTriggerPull.size) _scheduleTriggerPull();
+        // Listener sesi hanya memantau hari ini demi hemat reads. Ketika reset
+        // atau edit menyentuh tanggal lampau, gunakan hint tanggal dari trigger
+        // untuk reconcile satu hari itu saja agar HP lain tidak setengah reset.
+        const historicalDates = [...new Set((Array.isArray(data?.dates) ? data.dates : [])
+          .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d !== _todayLocal()))];
+        if (historicalDates.length) {
+          historicalDates.forEach(d => { delete _rekapPullCache['d:'+d]; });
+          Promise.all(historicalDates.map(d => pullRekapDate(d).catch(e => {
+            console.warn('[FBSync] triggered historical reconcile failed:', d, e?.message || e);
+            return false;
+          }))).then(results => {
+            if (results.some(Boolean) && _isStoreRelevantToCurrentPage('sesi')) _scheduleReRender();
+          });
+        }
       }
       // Re-render hanya bila trigger memang menyentuh data yang dipakai
       // halaman aktif. Listener/pull dokumen yang relevan tetap menjadwalkan
@@ -16440,6 +16507,11 @@ const FBSync = (() => {
 
   function setOrigP(fn) { _origP = fn; }
   function setOrigD(fn) { _origD = fn; }
+  async function persistRemote(store, obj) {
+    // Dipakai loader login/pull khusus untuk menyimpan data cloud ke IDB tanpa
+    // mengirimnya balik lagi ke queue. DB.p di sini akan membuat echo write.
+    return _origP ? _origP(store, obj) : DB.p(store, obj);
+  }
 
   // ── IMPROVED: Tombstone sweep — periodically clean up ──
   // Scan all IDB stores for any items marked deleted:true (tombstones
@@ -16485,6 +16557,9 @@ const FBSync = (() => {
 
   function start() {
     _startQueueWatchdog();
+    // Jangan attach listener ke namespace fallback ketika pengguna masih di
+    // layar pemilih tenant; snapshot tersebut hanya menambah beban login.
+    if (!localStorage.getItem('tenant_ns')) return;
     if (!navigator.onLine) { _dot('off'); return; }
     reconnect().then(() => {
       // Jangan pull seluruh store on-demand saat boot. auditLog dan qrScanLogs
@@ -16496,7 +16571,7 @@ const FBSync = (() => {
     }).catch(e => console.warn('[FBSync] initial sync error:', e.message));
   }
 
-  return { write, prepareLocalWrite, resolveSyncConflict, resolveAttendanceConflict, reconnect, pull, pullAll, pullOnDemand, pullEssential, pullForNav, pullRekapMonth, pullRekapDate, pullRekapMonthFull, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, _dot, _flushWrites, startListeners, stopListeners, watchAttendanceSession, prepareTenantSwitch, completeTenantBootstrap, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache, _unsubs, _REALTIME_STORES };
+  return { write, prepareLocalWrite, resolveSyncConflict, resolveAttendanceConflict, reconnect, pull, pullAll, pullOnDemand, pullEssential, pullForNav, pullRekapMonth, pullRekapDate, pullRekapMonthFull, pushAll, startAbsPoll, stopAbsPoll, start, setOrigP, setOrigD, persistRemote, _dot, _flushWrites, startListeners, stopListeners, watchAttendanceSession, prepareTenantSwitch, completeTenantBootstrap, _handleDocChange, _sweepTombstones, _needsPull, _markPulled, _invalidateCache, _pullCache, _unsubs, _REALTIME_STORES };
 })();
 
 // ════════════════════════════════════════════════════════════
@@ -16517,8 +16592,11 @@ const FBSync = (() => {
     return r;
   };
   DB.d = async function(store, id) {
+    // Ambil konteks sebelum delete. Sesudah _origD berhasil, record sudah
+    // tidak dapat dibaca lagi sehingga tombstone kehilangan sesi/tanggalnya.
+    const before = await DB.g(store, id).catch(()=>null);
     const r = await _origD(store, id);
-    await FBSync.write('del', store, null, id);     // → push tombstone ke FB
+    await FBSync.write('del', store, null, id, before); // → tombstone ke FB
     return r;
   };
 })();
@@ -23262,7 +23340,7 @@ window.FBSync = FBSync;
           if(!raw||!raw.id)continue;
           const u=Object.assign({},raw);delete u._ts;
           if(u.foto==='__L__'){const loc=await DB.g('users',u.id);if(loc?.foto&&!loc.foto.startsWith('__'))u.foto=loc.foto;else delete u.foto;}
-          if(window.FBSync?._origP)await window.FBSync._origP('users',u);else await DB.p('users',u);
+          await FBSync.persistRemote('users',u);
         }
         // Data cloud lama mungkin sudah memiliki duplikat otomatis dari
         // perangkat sebelumnya. Bersihkan hanya record sistem yang pasti.
