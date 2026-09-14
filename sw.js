@@ -1,157 +1,216 @@
-// Service Worker — Pesantrenku PWA
-// Strategi:
-// - App shell (index.html, manifest.json, icons): cache-first dengan background update
-// - API Firebase & font Google: network-only (selalu fresh)
-// - Navigasi: network-first, fallback ke cache
-// ── AUDIT FIX v2: ──
-//   1. Version bump supaya semua client yang ada langsung ambil SW baru.
-//   2. Tambah `message` handler yang memicu skipWaiting + clients.claim
-//      lewat postMessage('SKIP_WAITING') — dipakai oleh helper _notifySwUpdate
-//      di index.html. Tanpa ini, user harus tutup semua tab untuk update.
-//   3. Navigasi fallback: jika network gagal DAN tidak ada cache, tampilkan
-//      halaman offline minimal (bukan layar putih).
-const CACHE_VERSION = 'pesantrenku-v29-phase8-flat-nosplit-revisions';
-const OFFLINE_URL = './index.html'; // fallback — sama dengan app shell
-const APP_SHELL = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  './assets/js/phase3-revision.js',
-  './assets/js/phase4-design-system.js',
-  './assets/js/phase5-polish-stability.js',
-  './assets/js/phase6-academic-profile-reports.js',
-  './assets/js/phase7-integrity-quicknotes.js',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap'
-];
+/* Pesantrenku Service Worker — cache PWA, media, dan push notification.
+   Data Firestore tidak pernah di-cache di sini: absensi tetap memakai
+   IndexedDB + antrean sinkronisasi pada aplikasi. */
+'use strict';
 
-// Install: pre-cache app shell
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_VERSION).then(cache =>
-      Promise.all(
-        APP_SHELL.map(url =>
-          cache.add(url).catch(err => console.warn('[SW] Cache failed:', url, err))
+const SHELL_CACHE = 'pesantrenku-shell-v30-sync-safe';
+const MEDIA_CACHE = 'pesantrenku-media-v30-sync-safe';
+const MAX_MEDIA_ENTRIES = 120;
+const APP_SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+const shellUrl = new URL('./index.html', self.registration.scope).href;
+
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(SHELL_CACHE);
+    await Promise.allSettled(
+      APP_SHELL.map(url => cache.add(new Request(url, { cache: 'reload' })))
+    );
+  })());
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keep = new Set([SHELL_CACHE, MEDIA_CACHE]);
+    const keys = await caches.keys();
+
+    await Promise.all(
+      keys
+        .filter(key =>
+          (key.startsWith('pesantrenku-') || key.startsWith('absensi-img-cache-')) &&
+          !keep.has(key)
         )
-      )
-    ).then(() => self.skipWaiting())
-  );
+        .map(key => caches.delete(key))
+    );
+
+    await self.clients.claim();
+  })());
 });
 
-// Activate: cleanup old caches
-self.addEventListener('activate', (event) => {
+function isImageRequest(request, url) {
+  return request.destination === 'image' ||
+    /\.(?:png|jpe?g|webp|gif|svg)(?:$|\?)/i.test(url.pathname);
+}
+
+function isAllowedMedia(url) {
+  return url.origin === self.location.origin || [
+    'firebasestorage.googleapis.com',
+    'firebasestorage.app',
+    'storage.googleapis.com',
+    'lh3.googleusercontent.com'
+  ].includes(url.hostname);
+}
+
+function isDataOrApi(url) {
+  return [
+    'firestore.googleapis.com',
+    'firebasestorage.googleapis.com',
+    'firebasestorage.app',
+    'firebaseinstallations.googleapis.com',
+    'securetoken.googleapis.com',
+    'identitytoolkit.googleapis.com',
+    'firebaseappcheck.googleapis.com'
+  ].some(host => url.hostname === host || url.hostname.endsWith('.' + host));
+}
+
+async function trimMediaCache(cache) {
+  const keys = await cache.keys();
+
+  if (keys.length > MAX_MEDIA_ENTRIES) {
+    await Promise.all(
+      keys
+        .slice(0, keys.length - MAX_MEDIA_ENTRIES)
+        .map(key => cache.delete(key))
+    );
+  }
+}
+
+async function cacheFirstImage(request) {
+  const cache = await caches.open(MEDIA_CACHE);
+  const cached = await cache.match(request);
+
+  if (cached) return cached;
+
+  const response = await fetch(request);
+
+  if (response && (response.ok || response.type === 'opaque')) {
+    await cache.put(request, response.clone());
+    trimMediaCache(cache).catch(() => {});
+  }
+
+  return response;
+}
+
+async function staleWhileRevalidateShell(request) {
+  const cache = await caches.open(SHELL_CACHE);
+
+  const cached =
+    await cache.match(request) ||
+    (request.mode === 'navigate' ? await cache.match(shellUrl) : null);
+
+  const refresh = fetch(request).then(response => {
+    if (response && response.ok) {
+      cache
+        .put(
+          request.mode === 'navigate' ? shellUrl : request,
+          response.clone()
+        )
+        .catch(() => {});
+    }
+
+    return response;
+  });
+
+  if (cached) {
+    refresh.catch(() => {});
+    return cached;
+  }
+
+  return refresh;
+}
+
+self.addEventListener('fetch', event => {
+  const request = event.request;
+
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+
+  // Data Firestore, Auth, dan API selalu dari jaringan.
+  if (isDataOrApi(url)) return;
+
+  // Foto lokal/Firebase Storage disimpan cache.
+  if (isImageRequest(request, url) && isAllowedMedia(url)) {
+    event.respondWith(
+      cacheFirstImage(request).catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Tampilan aplikasi, script, stylesheet, dan font memakai cache.
+  if (
+    url.origin === self.location.origin &&
+    (
+      request.mode === 'navigate' ||
+      ['script', 'style', 'font'].includes(request.destination)
+    )
+  ) {
+    event.respondWith(
+      staleWhileRevalidateShell(request).catch(() => caches.match(shellUrl))
+    );
+  }
+});
+
+function buildPushNotification(payload) {
+  const notification = payload?.notification || {};
+  const data = payload?.data || {};
+
+  return {
+    title: notification.title || data.title || 'Pesantrenku',
+    options: {
+      body: notification.body || data.body || '',
+      icon: notification.icon || data.icon || '/icon-192.png',
+      badge: notification.badge || data.badge || '/icon-192.png',
+      tag: data.tag || data.notificationId || notification.tag || 'pesantrenku',
+      renotify: false,
+      data: {
+        url: data.link || data.url || notification.click_action || '/'
+      }
+    }
+  };
+}
+
+self.addEventListener('push', event => {
+  let payload = {};
+
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (e) {
+    payload = { data: { body: '' } };
+  }
+
+  const note = buildPushNotification(payload);
+
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    self.registration.showNotification(note.title, note.options)
   );
 });
 
-// Fetch handler
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  // Skip non-GET requests
-  if (req.method !== 'GET') return;
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
 
-  const url = new URL(req.url);
+  const target = new URL(
+    event.notification?.data?.url || '/',
+    self.registration.scope
+  ).href;
 
-  // Skip Firebase/Firestore API, gstatic SDK, & Cloudflare analytics (always network)
-  if (url.hostname.includes('firebasedatabase.app') ||
-      url.hostname.includes('firestore.googleapis.com') ||
-      url.hostname.includes('firebaseinstallations.googleapis.com') ||
-      url.hostname === 'www.gstatic.com' ||
-      url.hostname.includes('cloudflareinsights.com') ||
-      url.hostname.includes('googleapis.com')) {
-    return;
-  }
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true
+    });
 
-  // ── FASE 3 AUDIT FIX: Runtime caching untuk Firebase Storage ──
-  // Gambar profil santri/users disimpan di Firebase Storage (firebasestorage.app).
-  // Sebelumnya, gambar ini di-fetch ulang dari network setiap kali halaman
-  // dirender — boros bandwidth dan lambat di jaringan 3G. Sekarang pakai
-  // strategi StaleWhileRevalidate: tampilkan dari cache dulu (instant), lalu
-  // update di background untuk next render. Cache di-batasi 50 entries,
-  // max age 30 hari (gambar profil jarang berubah).
-  if (url.hostname.includes('firebasestorage.app') ||
-      url.hostname.includes('firebasestorage.googleapis.com')) {
-    event.respondWith(
-      caches.open('absensi-img-cache-v1').then(cache => {
-        return cache.match(req).then(cached => {
-          // Revalidate di background
-          const fetchPromise = fetch(req).then(res => {
-            // Hanya cache response OK (200) dan metode GET
-            if (res && res.ok && res.status === 200) {
-              const copy = res.clone();
-              cache.put(req, copy).catch(()=>{});
-              // Cleanup old entries jika cache > 50
-              cache.keys().then(keys => {
-                if (keys.length > 50) {
-                  // Hapus 10 entry tertua (FIFO)
-                  keys.slice(0, 10).forEach(k => cache.delete(k).catch(()=>{}));
-                }
-              }).catch(()=>{});
-            }
-            return res;
-          }).catch(() => cached);
-          return cached || fetchPromise;
-        });
-      })
+    const existing = windows.find(client =>
+      client.url === target ||
+      client.url.startsWith(self.registration.scope)
     );
-    return;
-  }
 
-  // Navigasi (HTML pages): network-first, fallback to cache
-  if (req.mode === 'navigate') {
-    event.respondWith(
-      fetch(req).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE_VERSION).then(c => c.put('./index.html', copy)).catch(()=>{});
-        return res;
-      }).catch(() => caches.match('./index.html').then(r => r || caches.match('./')))
-    );
-    return;
-  }
+    if (existing) return existing.focus();
 
-  // Google Fonts CSS: cache-first with update
-  if (url.hostname === 'fonts.googleapis.com') {
-    event.respondWith(
-      caches.match(req).then(cached => {
-        const fetchPromise = fetch(req).then(res => {
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then(c => c.put(req, copy)).catch(()=>{});
-          return res;
-        }).catch(() => cached);
-        return cached || fetchPromise;
-      })
-    );
-    return;
-  }
-
-  // Static assets (icons, manifest): cache-first
-  if (url.pathname.match(/\.(png|jpg|jpeg|svg|ico|json|woff2)$/i) ||
-      url.origin === self.location.origin) {
-    event.respondWith(
-      caches.match(req).then(cached => {
-        return cached || fetch(req).then(res => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE_VERSION).then(c => c.put(req, copy)).catch(()=>{});
-          }
-          return res;
-        });
-      })
-    );
-    return;
-  }
-
-  // Default: try network, fallback to cache
-  event.respondWith(
-    fetch(req).catch(() => caches.match(req))
-  );
+    return self.clients.openWindow(target);
+  })());
 });
 
-// Handle messages from page (for skipWaiting trigger)
-self.addEventListener('message', (event) => {
+// Dukungan pembaruan manual dari versi lama.
+self.addEventListener('message', event => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
 });

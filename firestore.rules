@@ -1,40 +1,94 @@
-// ============================================================================
-// firestore.rules — Pesantrenku (myassalam-d45c5)
-// Multi-tenant: tenants/{ns}/{store}/{docId}
-// ============================================================================
-// FIX: Rules sebelumnya hanya mengizinkan akses jika request.auth != null.
-// Namun, Firebase Anonymous Auth terkadang gagal/belum siap saat write pertama.
-// Solusi: Izinkan read/write untuk semua tenant data (auth optional).
-// Keamanan tetap terjaga karena setiap tenant memiliki namespace terpisah.
-// ============================================================================
-
+// firestore.rules — Pesantrenku / myassalam-d45c5
+// Berlaku untuk arsitektur aplikasi SAAT INI: Firebase Anonymous Auth,
+// tenant pada tenants/{tenantId}/{collection}/{documentId}.
+//
+// Sebelum publish: Firebase Console → Authentication → Sign-in method →
+// aktifkan Anonymous. Tanpa itu aplikasi akan mendapat "permission-denied".
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ── TENANT DATA ──────────────────────────────────────────────────────
-    // Semua data tenant (santri, kegiatan, absensi, settings, users, dll)
-    // disimpan di tenants/{ns}/{store}/{docId}
-    // Allow read & write untuk semua (auth optional — anonymous auth best effort)
-    match /tenants/{ns}/{store=**} {
-      allow read, write: if true;
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // ── REGISTRY (daftar tenant global) ─────────────────────────────────
-    //   - READ: publik (dibutuhkan halaman "Pilih Pesantren" sebelum login)
-    //   - CREATE/UPDATE/DELETE: publik (Setup Wizard mendaftarkan tenant baru)
-    match /registry/{ns} {
-      allow read: if true;
-      allow create, update, delete: if true;
+    // Snapshot peserta sesi adalah fakta historis. Setelah sesi berhasil
+    // dibuat, perangkat lain boleh mengubah status/lock sesi tetapi tidak
+    // boleh mengganti target yang dipakai rekap absensi.
+    function keepsSessionTarget() {
+      return !('targetIds' in resource.data)
+        || request.resource.data.targetIds == resource.data.targetIds;
     }
 
-    // ── FCM TOKENS (sub-collection tenants/{ns}/fcmTokens) ─────────────
-    match /tenants/{ns}/fcmTokens/{tokenDoc} {
-      allow read, write: if true;
+    function keepsSessionSnapshotMeta() {
+      return !('targetSnapshotVersion' in resource.data)
+        || request.resource.data.targetSnapshotVersion == resource.data.targetSnapshotVersion;
     }
 
-    // ── DEFAULT deny ───────────────────────────────────────────────────
+    function keepsSessionCapturedAt() {
+      return !('targetCapturedAt' in resource.data)
+        || request.resource.data.targetCapturedAt == resource.data.targetCapturedAt;
+    }
+
+    // Progres sakit selalu berupa dokumen baru supaya dua HP tidak saling
+    // menimpa array/progres pada satu dokumen catatan sakit.
+    function isSakitProgress(data) {
+      return 'tipe' in data && data.tipe == 'sakit_progress';
+    }
+
+    function validSakitProgress(data) {
+      return data.tipe == 'sakit_progress'
+        && data.sumber == 'catatanSakit'
+        && data.sourceSakitId is string
+        && data.sntId is string;
+    }
+
+    match /registry/{tenantId} {
+      // Tetap perlu dibaca sebelum pemilihan tenant. PIN tidak boleh lagi
+      // disimpan plaintext di registry pada migrasi keamanan tahap berikutnya.
+      allow read, create, update, delete: if signedIn();
+    }
+
+    match /tenants/{tenantId}/sesi/{sessionId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn()
+        && keepsSessionTarget()
+        && keepsSessionSnapshotMeta()
+        && keepsSessionCapturedAt();
+      allow delete: if signedIn();
+    }
+
+    match /tenants/{tenantId}/catatanSantri/{noteId} {
+      // Catatan umum tetap kompatibel dengan fitur aplikasi lama. Progres
+      // sakit wajib memiliki referensi sumber dan bersifat append-only.
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && (!isSakitProgress(request.resource.data)
+          || validSakitProgress(request.resource.data));
+      allow update, delete: if signedIn()
+        && !isSakitProgress(resource.data);
+    }
+
+    match /tenants/{tenantId}/fcmTokens/{tokenDoc} {
+      // Tetap diizinkan untuk backup/debug aplikasi saat ini. Pengiriman push
+      // harus dilakukan dari server/Cloud Function, bukan dari browser.
+      allow read, create, update, delete: if signedIn();
+    }
+
+    // Semua koleksi tenant lain: santri, anggota, kegiatan, absensi,
+    // perizinan, uzur, catatanSakit, pelanggaran, akademik, keuangan, dll.
+    // Akses publik tanpa Firebase Auth telah ditutup.
+    match /tenants/{tenantId}/{collection}/{document=**} {
+      // Collection khusus di atas sengaja dikecualikan; Firestore memakai
+      // logika OR antar-match sehingga catch-all tidak boleh membypass
+      // proteksi snapshot sesi dan append-only progres sakit.
+      allow read, create, update, delete: if signedIn()
+        && collection != 'sesi'
+        && collection != 'catatanSantri'
+        && collection != 'fcmTokens';
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
